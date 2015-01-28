@@ -74,6 +74,23 @@ footer > p {
 }
 
 
+/* THE FEATURES
+-------------------------------------------------- */
+
+/* Center align the text within the three columns below the carousel */
+.features .col-lg-4 {
+  margin-bottom: 20px;
+  text-align: center;
+}
+.features h2 {
+  font-weight: normal;
+}
+.features .col-lg-4 p {
+  margin-right: 10px;
+  margin-left: 10px;
+}
+
+
 /* RESPONSIVE CSS
 -------------------------------------------------- */
 
