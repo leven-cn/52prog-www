@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <meta name="renderer" content="webkit" />
   <link rel="icon" href="favicon.ico" />
   <title>Hello Programming</title>
   
   <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.2/css/bootstrap.min.css" />
+  <!-- <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.2/css/bootstrap-theme.min.css" /> -->
   <link rel="stylesheet" href="skin/52prog-default.css" />
 
   <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
@@ -19,33 +20,75 @@
   <![endif]-->
 </head>
 <body>
-  <nav class="navbar navbar-inverse navbar-fixed-top">
+  <!-- NavBar -->
+  <div class="navbar-wrapper">
     <div class="container">
-      <div class="navbar-header">
-        <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
-          <span class="sr-only">Toggle navigation</span>
-          <span class="icon-bar"></span>
-          <span class="icon-bar"></span>
-          <span class="icon-bar"></span>
-        </button>
-        <a class="navbar-brand" href="#">Programming</a>
-      </div>
-      <div id="navbar" class="collapse navbar-collapse">
-        <ul class="nav navbar-nav">
-          <li class="active"><a href="#">Home</a></li>
-          <li><a href="#about">About</a></li>
-          <li><a href="#contact">Contact</a></li>
-        </ul>
-      </div><!--/.nav-collapse -->
+      <nav class="navbar navbar-inverse navbar-static-top">
+        <div class="container">
+          <div class="navbar-header">
+            <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+              <span class="sr-only">Toggle navigation</span>
+              <span class="icon-bar"></span>
+              <span class="icon-bar"></span>
+              <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="#">52Programming</a>
+          </div>
+          <div id="navbar" class="collapse navbar-collapse">
+            <ul class="nav navbar-nav">
+              <li class="active"><a href="#">Home</a></li>
+              <li><a href="#about">About</a></li>
+              <li><a href="#contact">Contact</a></li>
+            </ul>
+          </div>
+        </div>
+      </nav>
     </div>
-  </nav>
+  </div><!-- NavBar -->
 
-  <div class="container">
-    <div class="skin-52prog">
-      <h1>Hello Programming!</h1>
-      <p class="lead">Coming soon...</p>
+  <!-- Carousel -->
+  <div id="52prog-carousel" class="carousel slide" data-ride="carousel">
+    <ol class="carousel-indicators">
+      <li data-target="#52prog-carousel" data-slide-to="0" class="active"></li>
+      <li data-target="#52prog-carousel" data-slide-to="1"></li>
+      <li data-target="#52prog-carousel" data-slide-to="2"></li>
+    </ol>
+    <div class="carousel-inner" role="listbox">
+      <div class="item active">
+        <div class="container">
+          <div class="carousel-caption">
+            <h1>Hello Programming</h1>
+            <p>Note: If you're viewing this page via a <code>file://</code> URL, the "next" and "previous" Glyphicon buttons on the left and right might not load/display properly due to web browser security rules.</p>
+            <p><a class="btn btn-lg btn-primary" href="#" role="button">Sign up today</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="container">
+          <div class="carousel-caption">
+            <h1>Second Slide</h1>
+            <p><a class="btn btn-lg btn-primary" href="#" role="button">Coming soon...</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="container">
+          <div class="carousel-caption">
+            <h1>Third Slide</h1>
+            <p><a class="btn btn-lg btn-primary" href="#" role="button">Coming soon...</a></p>
+          </div>
+        </div>
+      </div>
     </div>
-  </div><!-- /.container -->
+    <a class="left carousel-control" href="#52prog-carousel" role="button" data-slide="prev">
+      <span class="glyphicon glyphicon-chevron-left" aria-hidden="true"></span>
+      <span class="sr-only">Previous</span>
+    </a>
+    <a class="right carousel-control" href="#52prog-carousel" role="button" data-slide="next">
+      <span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span>
+      <span class="sr-only">Next</span>
+    </a>
+  </div><!-- Carousel -->
   
   <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
   <script src="http://cdn.bootcss.com/jquery/1.11.2/jquery.min.js"></script>
