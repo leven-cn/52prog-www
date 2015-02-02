@@ -26,27 +26,30 @@ except ImportError:
     sys.exit('pep8 required: `pip install pep8`')
 
 
-def py_version_validate():
-    if sys.version_info.major == 2:
-        if sys.version_info.minor != 7 or sys.version_info.micro < 9:
-            sys.exit('Python 2.7.9+ required')
-    elif sys.version_info.major == 3:
-        if sys.version_info.minor < 4:
-            sys.exit('Python 3.4+ required')
-    else:
-        sys.exit('Python 2.7.9+ or 3.4+ required')
+class GeneralTestCase(unittest.TestCase):
 
+    def setUp(self):
+        self.test_modules = [__file__]
+        self.pep8_quiet = False
 
-class CodeStyleTestCase(unittest.TestCase):
+    def test_py_version_conformance(self):
+        # Python 2.7.9+ or 3.4+ required
+        if sys.version_info.major == 2:
+            self.assertEqual(sys.version_info.minor, 7,
+                             'Python 2.7.9+ required')
+            self.assertGreaterEqual(sys.version_info.micro, 9,
+                                    'Python 2.7.9+ required')
+        elif sys.version_info.major == 3:
+            self.assertGreaterEqual(sys.version_info.minor, 4,
+                                    'Python 3.4+ required')
 
     def test_pep8_conformance(self):
-        pep8_style = pep8.StyleGuide(quiet=False)
-        result = pep8_style.check_files([__file__])
+        pep8_style = pep8.StyleGuide(quiet=self.pep8_quiet)
+        result = pep8_style.check_files(self.test_modules)
         self.assertEqual(result.total_errors, 0,
                          'Found {0} code style errors (and warnings)'
                          .format(result.total_errors))
 
 
 if __name__ == '__main__':
-    py_version_validate()
     unittest.main(verbosity=2, catchbreak=True)
