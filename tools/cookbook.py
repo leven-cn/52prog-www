@@ -20,13 +20,18 @@ limitations under the License.
 import sys
 import unittest
 
-try:
-    import pep8
-except ImportError:
-    sys.exit('pep8 required: `pip install pep8`')
+import pep8
 
 
 class GeneralTestCase(unittest.TestCase):
+    '''General test case for module.
+
+    Includes:
+
+        - Python version
+        - PEP 8 conformance
+
+    '''
 
     def setUp(self):
         self.test_modules = [__file__]
