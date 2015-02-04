@@ -18,7 +18,12 @@ limitations under the License.
 '''
 
 import sys
+import socket
 import unittest
+try:
+    from unittest.mock import patch
+except ImportError:
+    pass
 
 import pep8
 
@@ -34,6 +39,8 @@ class GeneralTestCase(unittest.TestCase):
     '''
 
     def setUp(self):
+        '''Subclasses must provide `test_modules` and could configure it by
+        override this method.'''
         self.test_modules = [__file__]
         self.pep8_quiet = False
 
@@ -54,6 +61,49 @@ class GeneralTestCase(unittest.TestCase):
         self.assertEqual(result.total_errors, 0,
                          'Found {0} code style errors (and warnings)'
                          .format(result.total_errors))
+
+
+@unittest.skipUnless(sys.version_info > (3, 3),
+                     'unittest.mock module support, Python 3.3+ required')
+class SocketTestCase(unittest.TestCase):
+    '''Test case for BSD socket APIs.
+
+    Includes:
+
+        - TCP
+        - UDP
+
+    '''
+
+    def setUp(self):
+        self.patcher = patch('socket.socket', autospec=True)
+        self.MockSocket = self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+
+    def test_mocksocket(self):
+        self.assertIs(self.MockSocket, socket.socket)
+
+        sock = self.MockSocket(socket.AF_INET, socket.SOCK_STREAM)
+        socket.socket.assert_called_once_with(socket.AF_INET,
+                                              socket.SOCK_STREAM)
+        sock.close()
+        sock.close.assert_called_once_with()
+
+    def tcp_socket_handle(self):
+        pass
+
+    def test_tcp_socket(self):
+        with self.MockSocket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            self.tcp_socket_handle()
+
+    def udp_socket_handle(self):
+        pass
+
+    def test_udp_socket(self):
+        with self.MockSocket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            self.udp_socket_handle()
 
 
 if __name__ == '__main__':
