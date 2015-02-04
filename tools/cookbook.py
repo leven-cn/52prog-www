@@ -47,13 +47,11 @@ class GeneralTestCase(unittest.TestCase):
     def test_py_version_conformance(self):
         # Python 2.7.9+ or 3.4+ required
         if sys.version_info.major == 2:
-            self.assertEqual(sys.version_info.minor, 7,
-                             'Python 2.7.9+ required')
-            self.assertGreaterEqual(sys.version_info.micro, 9,
-                                    'Python 2.7.9+ required')
+            self.assertGreater(sys.version_info, (2, 7, 9),
+                               'Python 2.7.9+ required')
         elif sys.version_info.major == 3:
-            self.assertGreaterEqual(sys.version_info.minor, 4,
-                                    'Python 3.4+ required')
+            self.assertGreater(sys.version_info, (3, 4),
+                               'Python 3.4+ required')
 
     def test_pep8_conformance(self):
         pep8_style = pep8.StyleGuide(quiet=self.pep8_quiet)
