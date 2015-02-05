@@ -18,12 +18,13 @@ limitations under the License.
 '''
 
 import sys
-import socketserver
-import unittest
 try:
-    from unittest.mock import patch, MagicMock
+    import socketserver
+    from unittest import mock
 except ImportError:
-    pass
+    import SocketServer as socketserver  # Python 2
+    import mock  # installed by pip, since Python 2.7.9+
+import unittest
 
 import pep8
 
@@ -45,8 +46,12 @@ class GeneralTestCase(unittest.TestCase):
         self.pep8_quiet = False
 
     def test_py_version_conformance(self):
-        self.assertGreaterEqual(sys.version_info, (3, 4),
-                                'Python 3.4+ required')
+        if sys.version_info.major == 3:
+            self.assertGreaterEqual(sys.version_info, (3, 4),
+                                    'Python 3.4+ required')
+        elif sys.version_info.major == 2:
+            self.assertGreaterEqual(sys.version_info, (2, 7, 9),
+                                    'Python 2.7.9+ required')
 
     def test_pep8_conformance(self):
         pep8_style = pep8.StyleGuide(quiet=self.pep8_quiet)
@@ -56,7 +61,10 @@ class GeneralTestCase(unittest.TestCase):
                          .format(result.total_errors))
 
 
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
+                 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
+                 'mock installed by pip, since Python 2.7.9')
 class MockSocketServerTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -66,7 +74,7 @@ class MockSocketServerTestCase(unittest.TestCase):
 
     def create_server(self):
         '''Subclasses must return a socket server.'''
-        mock_server = MagicMock(name='mock_server')
+        mock_server = mock.MagicMock(name='mock_server')
         mock_server.server_address = self.server_address
         return mock_server
 
@@ -76,26 +84,32 @@ class MockSocketServerTestCase(unittest.TestCase):
         # self.assertEqual(srv.RequestHandlerClass, None)
 
 
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
+                 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
+                 'mock installed by pip, since Python 2.7.9')
 class MockTCPServerTestCase(MockSocketServerTestCase):
 
     def setUp(self):
         super(MockTCPServerTestCase, self).setUp()
 
-    @patch('socketserver.TCPServer', autospec=True)
+    @mock.patch('__main__.socketserver.TCPServer', autospec=True)
     def create_server(self, MockTCPServer):
         mock_server = MockTCPServer.return_value
         mock_server.server_address = self.server_address
         return mock_server
 
 
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
+                 'unittest.mock since Python 3.3')
+@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
+                 'mock installed by pip, since Python 2.7.9')
 class MockUDPServerTestCase(MockSocketServerTestCase):
 
     def setUp(self):
         super(MockUDPServerTestCase, self).setUp()
 
-    @patch('socketserver.UDPServer', autospec=True)
+    @mock.patch('__main__.socketserver.UDPServer', autospec=True)
     def create_server(self, MockUDPServer):
         mock_server = MockUDPServer.return_value
         mock_server.server_address = self.server_address
