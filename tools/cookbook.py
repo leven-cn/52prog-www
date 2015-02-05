@@ -18,7 +18,12 @@ limitations under the License.
 '''
 
 import sys
+import socketserver
 import unittest
+try:
+    from unittest.mock import patch, MagicMock
+except ImportError:
+    pass
 
 import pep8
 
@@ -49,6 +54,52 @@ class GeneralTestCase(unittest.TestCase):
         self.assertEqual(result.total_errors, 0,
                          'Found {0} code style errors (and warnings)'
                          .format(result.total_errors))
+
+
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+class MockSocketServerTestCase(unittest.TestCase):
+
+    def setUp(self):
+        self.host = ''
+        self.port = 8000
+        self.server_address = (self.host, self.port)
+
+    def create_server(self):
+        '''Subclasses must return a socket server.'''
+        mock_server = MagicMock(name='mock_server')
+        mock_server.server_address = self.server_address
+        return mock_server
+
+    def test_server(self):
+        mock_server = self.create_server()
+        self.assertEqual(mock_server.server_address, self.server_address)
+        # self.assertEqual(srv.RequestHandlerClass, None)
+
+
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+class MockTCPServerTestCase(MockSocketServerTestCase):
+
+    def setUp(self):
+        super(MockTCPServerTestCase, self).setUp()
+
+    @patch('socketserver.TCPServer', autospec=True)
+    def create_server(self, MockTCPServer):
+        mock_server = MockTCPServer.return_value
+        mock_server.server_address = self.server_address
+        return mock_server
+
+
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+class MockUDPServerTestCase(MockSocketServerTestCase):
+
+    def setUp(self):
+        super(MockUDPServerTestCase, self).setUp()
+
+    @patch('socketserver.UDPServer', autospec=True)
+    def create_server(self, MockUDPServer):
+        mock_server = MockUDPServer.return_value
+        mock_server.server_address = self.server_address
+        return mock_server
 
 
 if __name__ == '__main__':
