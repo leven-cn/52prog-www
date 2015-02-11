@@ -18,12 +18,10 @@ limitations under the License.
 '''
 
 import sys
-try:
-    import socketserver
-    from unittest import mock
-except ImportError:
-    import SocketServer as socketserver  # Python 2
-    import mock  # installed by pip, since Python 2.7.9+
+import socket
+import select
+import socketserver
+from unittest import mock
 import unittest
 
 import pep8
@@ -46,12 +44,8 @@ class GeneralTestCase(unittest.TestCase):
         self.pep8_quiet = False
 
     def test_py_version_conformance(self):
-        if sys.version_info.major == 3:
-            self.assertGreaterEqual(sys.version_info, (3, 4),
-                                    'Python 3.4+ required')
-        elif sys.version_info.major == 2:
-            self.assertGreaterEqual(sys.version_info, (2, 7, 9),
-                                    'Python 2.7.9+ required')
+        self.assertGreaterEqual(sys.version_info, (3, 4),
+                                'Python 3.4+ required')
 
     def test_pep8_conformance(self):
         pep8_style = pep8.StyleGuide(quiet=self.pep8_quiet)
@@ -61,59 +55,184 @@ class GeneralTestCase(unittest.TestCase):
                          .format(result.total_errors))
 
 
-@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
-                 'unittest.mock since Python 3.3')
-@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
-                 'mock installed by pip, since Python 2.7.9')
-class MockSocketServerTestCase(unittest.TestCase):
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+class MockServerTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.host = ''
-        self.port = 8000
-        self.server_address = (self.host, self.port)
+        self.server_address = ('', 8000)
+        self.client_address = ('client.host', 123456)
+        self.fd = 1
+        self.request_handler = socketserver.BaseRequestHandler
+        self.request = self._mock_request()
 
-    def create_server(self):
-        '''Subclasses must return a socket server.'''
-        mock_server = mock.MagicMock(name='mock_server')
-        mock_server.server_address = self.server_address
-        return mock_server
+    def mock_server(self, MockSocketClass, mock_handle, ServerClass,
+                    timeout=None, mock_error=None):
+        '''Mock a TCP socket server.'''
+        server_socket = self._mock_socket(MockSocketClass, timeout)
 
-    def test_server(self):
-        mock_server = self.create_server()
-        self.assertEqual(mock_server.server_address, self.server_address)
-        # self.assertEqual(srv.RequestHandlerClass, None)
+        server = ServerClass(self.server_address, self.request_handler)
+        if mock_error is not None:
+            server.handle_error = mock.MagicMock(name='handle_error')
+
+        self.assertEqual(server.address_family, socket.AF_INET)
+        if ServerClass is socketserver.TCPServer:
+            self.assertEqual(server.socket_type, socket.SOCK_STREAM)
+        elif ServerClass is socketserver.UDPServer:
+            self.assertEqual(server.socket_type, socket.SOCK_DGRAM)
+        self.assertEqual(server.timeout, None)  # blocking mode by default
+        self.assertEqual(server.RequestHandlerClass, self.request_handler)
+
+        self.assertIs(server.socket, server_socket)
+        self._mock_server_socket(server)
+        self._mock_request_handler(mock_handle, mock_error)
+        return server
+
+    def mock_get_request(self, server_socket):
+        '''Mock get_request().
+
+        Must be override.
+        '''
+        pass
+
+    def mock_server_activate(self, server):
+        ''''Mock server_activate().
+
+        May be override.
+        '''
+        pass
+
+    def _mock_request(self):
+        '''Mock a client request socket object.
+
+        This instance has two methods: shutdown() and close().
+        '''
+        MockClientSocket = mock.MagicMock(name='ClientSocket')
+        request = MockClientSocket.return_value
+
+        return request
+
+    def _mock_socket(self, MockSocketClass, timeout):
+        '''Mock a server socket.'''
+        server_socket = MockSocketClass.return_value
+        server_socket.getsockname.return_value = self.server_address
+        server_socket.fileno.return_value = self.fd
+        server_socket.gettimeout.return_value = timeout
+        if timeout is None:
+            self.mock_get_request(server_socket)
+
+        return server_socket
+
+    def _mock_server_socket(self, server):
+        '''Mock a server socket object.'''
+        # Mock server.server_bind()
+        server.socket.bind.assert_called_once_with(self.server_address)
+        server.socket.getsockname.assert_called_once_with()
+        self.assertEqual(server.server_address, self.server_address)
+
+        # Mock server.server_activate()
+        self.mock_server_activate(server)
+
+    def _mock_request_handler(self, mock_handle, error):
+        '''Mock RequestHandlerClass.'''
+        mock_handle.side_effect = error
+
+    def mock_handle_request(self, server, timeout=None, error=False):
+        '''Mock handle_request().'''
+        with mock.patch('select.select', autospec=True) as MockSelect:
+            rlist = [server]
+            if timeout is not None:
+                rlist = []
+            MockSelect.return_value = (rlist, [], [])
+
+            server.handle_request()
+            server.socket.gettimeout.assert_called_once_with()
+            select.select.assert_called_once_with([server], [], [], timeout)
+
+        if timeout is None:
+            if server.socket_type == socket.SOCK_STREAM:
+                server.socket.accept.assert_called_once_with()
+
+            if error:
+                server.handle_error.assert_called_once_with(
+                    self.request,
+                    self.client_address)
+
+            if server.socket_type == socket.SOCK_STREAM:
+                self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
+                self.request.close.assert_called_once_with()
+
+    def mock_server_close(self, server):
+        '''Mock server_close().'''
+        server.server_close()
+        server.socket.close.assert_called_once_with()
 
 
-@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
-                 'unittest.mock since Python 3.3')
-@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
-                 'mock installed by pip, since Python 2.7.9')
-class MockTCPServerTestCase(MockSocketServerTestCase):
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+@mock.patch('socketserver.BaseRequestHandler.handle', autospec=True)
+@mock.patch('socket.socket', autospec=True)
+class MockTCPServerTestCase(MockServerTestCase):
 
-    def setUp(self):
-        super(MockTCPServerTestCase, self).setUp()
+    def mock_get_request(self, server_socket):
+        '''Override for TCP server.'''
+        server_socket.accept.return_value = (self.request, self.client_address)
 
-    @mock.patch('__main__.socketserver.TCPServer', autospec=True)
-    def create_server(self, MockTCPServer):
-        mock_server = MockTCPServer.return_value
-        mock_server.server_address = self.server_address
-        return mock_server
+    def mock_server_activate(self, server):
+        '''Override for TCP server.'''
+        server.socket.listen.assert_called_once_with(server.request_queue_size)
+
+    def test_server_succ(self, MockSocket, mock_handle):
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.TCPServer)
+        self.mock_handle_request(server)
+        self.mock_server_close(server)
+
+    def test_server_timeout(self, MockSocket, mock_handle):
+        timeout = 0.5  # in seconds
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.TCPServer, timeout=timeout)
+        self.mock_handle_request(server, timeout=timeout)
+        self.mock_server_close(server)
+
+    def test_server_error(self, MockSocket, mock_handle):
+        error = KeyError
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.TCPServer, mock_error=error)
+        self.mock_handle_request(server, error=True)
+        self.mock_server_close(server)
 
 
-@unittest.skipIf(sys.version_info.major == 3 and sys.version_info < (3, 3),
-                 'unittest.mock since Python 3.3')
-@unittest.skipIf(sys.version_info.major == 2 and sys.version_info < (2, 7, 9),
-                 'mock installed by pip, since Python 2.7.9')
-class MockUDPServerTestCase(MockSocketServerTestCase):
+@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
+@mock.patch('socketserver.BaseRequestHandler.handle', autospec=True)
+@mock.patch('socket.socket', autospec=True)
+class MockUDPServerTestCase(MockServerTestCase):
 
-    def setUp(self):
-        super(MockUDPServerTestCase, self).setUp()
+    def mock_get_request(self, server_socket):
+        '''Mock get_request() for UDP server.'''
+        data = 'mock data'
+        server_socket.recvfrom.return_value = (data,
+                                               self.client_address)
+        self.request = (data, server_socket)
 
-    @mock.patch('__main__.socketserver.UDPServer', autospec=True)
-    def create_server(self, MockUDPServer):
-        mock_server = MockUDPServer.return_value
-        mock_server.server_address = self.server_address
-        return mock_server
+    def test_server_succ(self, MockSocket, mock_handle):
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.UDPServer)
+        self.assertEqual(server.socket_type, socket.SOCK_DGRAM)
+        self.mock_handle_request(server)
+        self.mock_server_close(server)
+
+    def test_server_timeout(self, MockSocket, mock_handle):
+        timeout = 0.5  # in seconds
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.UDPServer, timeout=timeout)
+        self.mock_handle_request(server, timeout=timeout)
+        self.mock_server_close(server)
+
+    def test_server_error(self, MockSocket, mock_handle):
+        error = KeyError
+        server = self.mock_server(MockSocket, mock_handle,
+                                  socketserver.UDPServer, mock_error=error)
+        self.mock_handle_request(server, error=True)
+        self.mock_server_close(server)
 
 
 if __name__ == '__main__':
