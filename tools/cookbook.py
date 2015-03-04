@@ -202,6 +202,60 @@ class TCPServerV4(object):
         request.close()
 
 
+class TCPServer(TCPServerV4):
+    '''A tiny TCP server, both IPv4 and IPv6 support.
+
+    This class is built upon the `socket` and `select` modules.
+
+    Instance Attributes:
+
+        - socket: the socket object of server
+
+    Simple Usage:
+
+        class MyTCPRequestHandler(cookbook.TCPRequestHandler):
+            def handle(self):
+                data = self.rfile.readline().strip()
+                self.wfile.write(data)
+
+        server = cookbook.TCPServer('', MyTCPRequestHandler)
+        try:
+            while True:
+                server.handle_request()
+        finally:
+            server.close()
+
+    '''
+
+    _request_queue_size = 5
+
+    def __init__(self, server_address, RequestHandler):
+        self._RequestHandler = RequestHandler
+        self.socket = None
+        host, port = server_address
+        for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC,
+                                      socket.SOCK_STREAM, 0,
+                                      socket.AI_PASSIVE):
+            family, type, proto, canonname, sockaddr = res
+            try:
+                self.socket = socket.socket(family, type, proto)
+            except OSError:
+                self.socket = None
+                continue
+            self.socket.settimeout(None)  # blocking mode for socket.makefile()
+            try:
+                self.socket.bind(sockaddr)
+                self.socket.listen(self._request_queue_size)
+            except OSError:
+                self.socket.close()
+                self.socket = None
+                continue
+            break
+
+        if self.socket is None:
+            raise OSError
+
+
 class BaseRequestHandler(metaclass=ABCMeta):
     '''This ABC class is instantiated for each request to be handled.
 
