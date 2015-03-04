@@ -72,8 +72,8 @@ def _eintr_retry(func, *args):
                 raise
 
 
-class TCPServer(object):
-    '''A tiny TCP server.
+class TCPServerV4(object):
+    '''A tiny TCP server, IPv4 only.
 
     This class is built upon the `socket` and `select` modules.
 
@@ -88,7 +88,7 @@ class TCPServer(object):
                 data = self.rfile.readline().strip()
                 self.wfile.write(data)
 
-        server = cookbook.TCPServer('', MyTCPRequestHandler)
+        server = cookbook.TCPServerV4('', MyTCPRequestHandler)
         try:
             while True:
                 server.handle_request()

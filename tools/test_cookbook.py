@@ -35,7 +35,7 @@ class GeneralTestCase(cookbook.GeneralTestCase):
 
 
 @unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-class TCPServerTestCase(unittest.TestCase):
+class TCPServerV4TestCase(unittest.TestCase):
 
     def setUp(self):
         self.server_address = ('', 8000)
@@ -55,7 +55,8 @@ class TCPServerTestCase(unittest.TestCase):
 
         # Mock a server.
         request_handler = mock.MagicMock(name='RequestHandler')
-        self.server = cookbook.TCPServer(self.server_address, request_handler)
+        self.server = cookbook.TCPServerV4(self.server_address,
+                                           request_handler)
         self.server.socket.bind.assert_called_once_with(self.server_address)
         self.server.socket.listen.assert_called_once_with(mock.ANY)
         self.server.handle_timeout = mock.MagicMock(name='handle_timeout')
