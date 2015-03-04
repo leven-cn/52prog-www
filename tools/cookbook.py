@@ -18,6 +18,7 @@ limitations under the License.
 '''
 
 import sys
+from abc import ABCMeta, abstractmethod
 import errno
 import socket
 import select
@@ -87,7 +88,7 @@ class TCPServer(object):
     def __init__(self, server_address, RequestHandler):
         self._RequestHandler = RequestHandler
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(0.0)  # non-blocking
+        self.socket.settimeout(None)  # blocking mode for socket.makefile()
         self.socket.bind(server_address)
         self.socket.listen(self._request_queue_size)
 
@@ -185,3 +186,89 @@ class TCPServer(object):
         except OSError:
             pass  # some platforms may raise ENOTCONN here
         request.close()
+
+
+class BaseRequestHandler(metaclass=ABCMeta):
+    '''This ABC class is instantiated for each request to be handled.
+
+    Instance Attributes:
+
+        - connection: a client request connection
+        - client_address: client address (Read-Only)
+        - server: server instance (Read-Only)
+
+    Subclasses MUST implement the handle() method.
+
+    '''
+
+    def __init__(self, request, client_address, server):
+        self.connection = request
+        self.client_address = client_address
+        self.server = server
+        self.setup()
+        try:
+            self.handle()
+        finally:
+            self.teardown()
+
+    def setup(self):
+        '''Set up a request handler.
+
+        May be override.
+
+        '''
+        pass
+
+    @abstractmethod
+    def handle(self):
+        pass
+
+    def teardown(self):
+        '''Tear down a request handling.
+
+        May be override.
+
+        '''
+        pass
+
+
+class TCPRequestHandler(BaseRequestHandler):
+    '''A request handler for TCP servers.
+
+    Instance Attributes (Base):
+
+        - connection: a client request connection
+        - client_address: client address (Read-Only)
+        - server: server instance (Read-Only)
+
+    Instance Attributes (TCP):
+
+        - rfile: a file object associated with the socket for reading
+        - wfile: a file object associated with the socket for writing
+
+    Subclasses MUST implement the handle() method.
+
+    '''
+
+    def setup(self):
+        # We default `rfile` to buffered because otherwise it could be
+        # really slow for large data (a getc() call per byte).
+        self.rfile = self.connection.makefile('rb', -1)
+
+        # We make `wfile` unbuffered because:
+        # (a) often after a write() we want to read and we need to flush
+        #     the line;
+        # (b) big writes to unbuffered files are typically optimized by
+        #     `stdio` even when big reads aren't.
+        self.wfile = self.connection.makefile('wb', 0)
+
+    def teardown(self):
+        if not self.wfile.closed:
+            try:
+                self.wfile.flush()
+            except OSError:
+                # An final socket error may have occurred here, such as
+                # the local error ECONNABORTED.
+                pass
+        self.wfile.close()
+        self.rfile.close()

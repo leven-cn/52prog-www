@@ -50,7 +50,6 @@ class TCPServerTestCase(unittest.TestCase):
         self.socket_patcher = mock.patch('socket.socket', spec=True)
         MockSocket = self.socket_patcher.start()
         server_socket = MockSocket.return_value
-        server_socket.getsockname.return_value = self.server_address
         server_socket.fileno.return_value = self.fd
         server_socket.accept.return_value = (self.request, self.client_address)
 
@@ -59,8 +58,6 @@ class TCPServerTestCase(unittest.TestCase):
         self.server = cookbook.TCPServer(self.server_address, request_handler)
         self.server.socket.bind.assert_called_once_with(self.server_address)
         self.server.socket.listen.assert_called_once_with(mock.ANY)
-        self.server.verify_request = mock.MagicMock(name='verify_request')
-        self.server.verify_request.return_value = True
         self.server.handle_timeout = mock.MagicMock(name='handle_timeout')
         self.server.handle_error = mock.MagicMock(name='handle_error')
 
@@ -97,15 +94,60 @@ class TCPServerTestCase(unittest.TestCase):
             select.select.assert_called_once_with([self.server.socket], [], [],
                                                   timeout)
             if timeout is None:
-                self.server.verify_request.assert_called_once_with(
-                    self.request,
-                    self.client_address)
                 self.server.socket.accept.assert_called_once_with()
 
     def assert_cleanup_request(self):
         self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
         self.request.close.assert_called_once_with()
 
+
+class RequestHandlerTestCase(unittest.TestCase):
+
+    def test_base_request_handler(self):
+        # Can't instantiate abstract class BaseRequestHandler.
+        with self.assertRaises(TypeError):
+            cookbook.BaseRequestHandler(None, None, None)
+
+    def test_tcp_request_handler_error(self):
+        # Can't instantiate abstract class TCPRequestHandler.
+        with self.assertRaises(TypeError):
+            cookbook.TCPRequestHandler(None, None, None)
+
+    @unittest.skipIf(sys.version_info < (3, 3),
+                     'unittest.mock since Python 3.3')
+    @mock.patch('socket.socket', autospec=True)
+    def test_tcp_request_handler_succ(self, MockSocket):
+        # Create a subclass for TCPRequestHandler.
+        class MyTCPRequestHandler(cookbook.TCPRequestHandler):
+            def handle(self):
+                data = self.rfile.readline().strip()
+                self.wfile.write(data)
+
+        mock_socket = MockSocket.return_value
+        handler = MyTCPRequestHandler(mock_socket, None, None)
+        handler.connection.makefile.assert_any_call('rb', mock.ANY)
+        handler.connection.makefile.assert_any_call('wb', mock.ANY)
+        handler.rfile.readline.assert_called_once_with()
+        handler.wfile.write.assert_called_once_with(mock.ANY)
+        handler.rfile.close.assert_called_with()
+        handler.wfile.close.assert_called_with()
+
+    @unittest.skipIf(sys.version_info < (3, 3),
+                     'unittest.mock since Python 3.3')
+    @mock.patch('socket.socket', autospec=True)
+    def test_base_request_handler_succ(self, MockSocket):
+        bufsize = 1024
+
+        # Create a subclass for BaseRequestHandler.
+        class MyTCPRequestHandler(cookbook.BaseRequestHandler):
+            def handle(self):
+                data = self.connection.recv(bufsize).strip()
+                self.connection.sendall(data)
+
+        mock_socket = MockSocket.return_value
+        handler = MyTCPRequestHandler(mock_socket, None, None)
+        handler.connection.recv.assert_called_once_with(bufsize)
+        handler.connection.sendall.assert_called_once_with(mock.ANY)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2, catchbreak=True)
