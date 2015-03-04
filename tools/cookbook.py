@@ -81,6 +81,20 @@ class TCPServer(object):
 
         - socket: the socket object of server
 
+    Simple Usage:
+
+        class MyTCPRequestHandler(cookbook.TCPRequestHandler):
+            def handle(self):
+                data = self.rfile.readline().strip()
+                self.wfile.write(data)
+
+        server = cookbook.TCPServer('', MyTCPRequestHandler)
+        try:
+            while True:
+                server.handle_request()
+        finally:
+            server.close()
+
     '''
 
     _request_queue_size = 5
@@ -102,7 +116,7 @@ class TCPServer(object):
         @param timeout a time-out in seconds. When the timeout argument is
                        omitted the function blocks until at least one request
                        is ready.
-        @exception OSError raised by socket.accept()
+        @exception OSError raised by select.select() or socket.accept()
 
         '''
 
