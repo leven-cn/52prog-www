@@ -56,7 +56,13 @@ class GeneralTestCase(unittest.TestCase):
 
 
 def _eintr_retry(func, *args):
-    ''''Restart a system call interrupted by `EINTR`.'''
+    ''''Restart a system call interrupted by `EINTR`.
+
+    @param func the system call
+    @return returned by the system call
+    @exception OSError raised by the system call
+
+    '''
     while True:
         try:
             return func(*args)
@@ -66,13 +72,13 @@ def _eintr_retry(func, *args):
 
 
 class TCPServer(object):
-    '''A tiny version of framework for TCP servers.
+    '''A tiny TCP server.
 
     This class is built upon the `socket` and `select` modules.
 
     Instance Attributes:
 
-        - socket: socket object of server
+        - socket: the socket object of server
 
     '''
 
@@ -95,6 +101,7 @@ class TCPServer(object):
         @param timeout a time-out in seconds. When the timeout argument is
                        omitted the function blocks until at least one request
                        is ready.
+        @exception OSError raised by socket.accept()
 
         '''
 
@@ -120,7 +127,8 @@ class TCPServer(object):
     def handle_error(self, request, client_address):
         '''Handle an error gracefully.
 
-        @param request client request.
+        @param request the client request
+        @param client_address the client address
 
         May be override.
 
@@ -130,17 +138,21 @@ class TCPServer(object):
     def verify_request(self, request, client_address):
         '''Verify the request.
 
+        @param request the client request
+        @param client_address the client address
+
         May be override.
 
         '''
         return True
 
     def _handle_request_noblock(self):
-        '''Handle one request, without blocking.'''
-        try:
-            request, client_address = self.socket.accept()
-        except OSError:
-            return
+        '''Handle one request, without blocking.
+
+        @exception OSError raised by socket.accept()
+
+        '''
+        request, client_address = self.socket.accept()
         if self.verify_request(request, client_address):
             try:
                 self._process_request(request, client_address)
@@ -149,12 +161,21 @@ class TCPServer(object):
                 self._close_request(request)
 
     def _process_request(self, request, client_address):
-        '''Process one request after verification.'''
+        '''Process one request after verification.
+
+        @param request the client request
+        @param client_address the client address
+
+        '''
         self._RequestHandler(request, client_address, self)
         self._close_request(request)
 
     def _close_request(self, request):
-        '''Clean up an individual request and shutdown it.'''
+        '''Clean up an individual request and shutdown it.
+
+        @param request the client request
+
+        '''
         try:
             # Explicitly shutdown.
             #
