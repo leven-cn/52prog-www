@@ -18,6 +18,7 @@ limitations under the License.
 '''
 
 import sys
+import errno
 import socket
 import select
 from unittest import mock
