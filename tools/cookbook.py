@@ -20,7 +20,6 @@ limitations under the License.
 import sys
 import socket
 import select
-import socketserver
 from unittest import mock
 import unittest
 
@@ -38,8 +37,8 @@ class GeneralTestCase(unittest.TestCase):
     '''
 
     def setUp(self):
-        '''Subclasses must provide `test_modules` and could configure it by
-        override this method.'''
+        '''Subclasses must provide `test_modules` and could configure
+        `pep8_quiet`.'''
         self.test_modules = [__file__]
         self.pep8_quiet = False
 
@@ -55,113 +54,112 @@ class GeneralTestCase(unittest.TestCase):
                          .format(result.total_errors))
 
 
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-class MockServerTestCase(unittest.TestCase):
+def _eintr_retry(func, *args):
+    ''''Restart a system call interrupted by `EINTR`.'''
+    while True:
+        try:
+            return func(*args)
+        except OSError as e:
+            if e.errno != errno.EINTR:
+                raise
 
-    def setUp(self):
-        self.server_address = ('', 8000)
-        self.client_address = ('client.host', 123456)
-        self.fd = 1
-        self.request_handler = socketserver.BaseRequestHandler
-        self.request = self._mock_request()
 
-    def mock_server(self, MockSocketClass, mock_handle, ServerClass,
-                    timeout=None, mock_error=None):
-        '''Mock a TCP socket server.'''
-        server_socket = self._mock_socket(MockSocketClass, timeout)
+class TCPServer(object):
+    '''A tiny version of framework for TCP servers.
 
-        server = ServerClass(self.server_address, self.request_handler)
-        if mock_error is not None:
-            server.handle_error = mock.MagicMock(name='handle_error')
+    This class is built upon the `socket` and `select` modules.
 
-        self.assertEqual(server.address_family, socket.AF_INET)
-        if ServerClass is socketserver.TCPServer:
-            self.assertEqual(server.socket_type, socket.SOCK_STREAM)
-        elif ServerClass is socketserver.UDPServer:
-            self.assertEqual(server.socket_type, socket.SOCK_DGRAM)
-        self.assertEqual(server.timeout, None)  # blocking mode by default
-        self.assertEqual(server.RequestHandlerClass, self.request_handler)
+    Instance Attributes:
 
-        self.assertIs(server.socket, server_socket)
-        self._mock_server_socket(server)
-        self._mock_request_handler(mock_handle, mock_error)
-        return server
+        - socket: socket object of server
 
-    def mock_get_request(self, server_socket):
-        '''Mock get_request().
+    '''
 
-        Must be override.
+    _request_queue_size = 5
+
+    def __init__(self, server_address, RequestHandler):
+        self._RequestHandler = RequestHandler
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(0.0)  # non-blocking
+        self.socket.bind(server_address)
+        self.socket.listen(self._request_queue_size)
+
+    def close(self):
+        '''Clean up the server.'''
+        self.socket.close()
+
+    def handle_request(self, timeout=None):
+        '''Handle one request.
+
+        @param timeout a time-out in seconds. When the timeout argument is
+                       omitted the function blocks until at least one request
+                       is ready.
+
         '''
-        pass
 
-    def mock_server_activate(self, server):
-        ''''Mock server_activate().
+        # Polling reduces our responsiveness to a
+        # shutdown request and wastes CPU at all other times.
+        assert timeout != 0.0, 'timeout=0.0 means a poll and never blocks!'
+        rlist, wlist, xlist = _eintr_retry(select.select,
+                                           [self.socket], [], [], timeout)
+        if len(rlist) == 0:
+            self.handle_timeout()
+            return
+
+        self._handle_request_noblock()
+
+    def handle_timeout(self):
+        '''Handle timeout.
 
         May be override.
+
         '''
         pass
 
-    def _mock_request(self):
-        '''Mock a client request socket object.
+    def handle_error(self, request, client_address):
+        '''Handle an error gracefully.
 
-        This instance has two methods: shutdown() and close().
+        @param request client request.
+
+        May be override.
+
         '''
-        MockClientSocket = mock.MagicMock(name='ClientSocket')
-        request = MockClientSocket.return_value
+        pass
 
-        return request
+    def verify_request(self, request, client_address):
+        '''Verify the request.
 
-    def _mock_socket(self, MockSocketClass, timeout):
-        '''Mock a server socket.'''
-        server_socket = MockSocketClass.return_value
-        server_socket.getsockname.return_value = self.server_address
-        server_socket.fileno.return_value = self.fd
-        server_socket.gettimeout.return_value = timeout
-        if timeout is None:
-            self.mock_get_request(server_socket)
+        May be override.
 
-        return server_socket
+        '''
+        return True
 
-    def _mock_server_socket(self, server):
-        '''Mock a server socket object.'''
-        # Mock server.server_bind()
-        server.socket.bind.assert_called_once_with(self.server_address)
-        server.socket.getsockname.assert_called_once_with()
-        self.assertEqual(server.server_address, self.server_address)
+    def _handle_request_noblock(self):
+        '''Handle one request, without blocking.'''
+        try:
+            request, client_address = self.socket.accept()
+        except OSError:
+            return
+        if self.verify_request(request, client_address):
+            try:
+                self._process_request(request, client_address)
+            except:
+                self.handle_error(request, client_address)
+                self._close_request(request)
 
-        # Mock server.server_activate()
-        self.mock_server_activate(server)
+    def _process_request(self, request, client_address):
+        '''Process one request after verification.'''
+        self._RequestHandler(request, client_address, self)
+        self._close_request(request)
 
-    def _mock_request_handler(self, mock_handle, error):
-        '''Mock RequestHandlerClass.'''
-        mock_handle.side_effect = error
-
-    def mock_handle_request(self, server, timeout=None, error=False):
-        '''Mock handle_request().'''
-        with mock.patch('select.select', autospec=True) as MockSelect:
-            rlist = [server]
-            if timeout is not None:
-                rlist = []
-            MockSelect.return_value = (rlist, [], [])
-
-            server.handle_request()
-            server.socket.gettimeout.assert_called_once_with()
-            select.select.assert_called_once_with([server], [], [], timeout)
-
-        if timeout is None:
-            if server.socket_type == socket.SOCK_STREAM:
-                server.socket.accept.assert_called_once_with()
-
-            if error:
-                server.handle_error.assert_called_once_with(
-                    self.request,
-                    self.client_address)
-
-            if server.socket_type == socket.SOCK_STREAM:
-                self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
-                self.request.close.assert_called_once_with()
-
-    def mock_server_close(self, server):
-        '''Mock server_close().'''
-        server.server_close()
-        server.socket.close.assert_called_once_with()
+    def _close_request(self, request):
+        '''Clean up an individual request and shutdown it.'''
+        try:
+            # Explicitly shutdown.
+            #
+            # socket.close() merely releases
+            # the socket and waits for GC to perform the actual close.
+            request.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass  # some platforms may raise ENOTCONN here
+        request.close()

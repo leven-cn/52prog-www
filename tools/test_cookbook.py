@@ -19,7 +19,8 @@ POSSIBILITY OF SUCH DAMAGE.
 '''
 
 import sys
-import socketserver
+import socket
+import select
 import unittest
 from unittest import mock
 
@@ -30,74 +31,80 @@ class GeneralTestCase(cookbook.GeneralTestCase):
 
     def setUp(self):
         super(GeneralTestCase, self).setUp()
-        self.test_modules = ['cookbook.py']
+        self.test_modules = [__file__, 'cookbook.py']
 
 
 @unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-@mock.patch('socketserver.BaseRequestHandler.handle', autospec=True)
-@mock.patch('socket.socket', autospec=True)
-class MockTCPServerTestCase(cookbook.MockServerTestCase):
+class TCPServerTestCase(unittest.TestCase):
 
-    def mock_get_request(self, server_socket):
-        '''Override for TCP server.'''
+    def setUp(self):
+        self.server_address = ('', 8000)
+        self.client_address = ('client.host', 123456)
+        self.fd = 1
+
+        # Mock a request.
+        MockClientSocket = mock.MagicMock(name='ClientSocket')
+        self.request = MockClientSocket.return_value
+
+        # Mock a server socket.
+        self.socket_patcher = mock.patch('socket.socket', spec=True)
+        MockSocket = self.socket_patcher.start()
+        server_socket = MockSocket.return_value
+        server_socket.getsockname.return_value = self.server_address
+        server_socket.fileno.return_value = self.fd
         server_socket.accept.return_value = (self.request, self.client_address)
 
-    def mock_server_activate(self, server):
-        '''Override for TCP server.'''
-        server.socket.listen.assert_called_once_with(server.request_queue_size)
+        # Mock a server.
+        request_handler = mock.MagicMock(name='RequestHandler')
+        self.server = cookbook.TCPServer(self.server_address, request_handler)
+        self.server.socket.bind.assert_called_once_with(self.server_address)
+        self.server.socket.listen.assert_called_once_with(mock.ANY)
+        self.server.verify_request = mock.MagicMock(name='verify_request')
+        self.server.verify_request.return_value = True
+        self.server.handle_timeout = mock.MagicMock(name='handle_timeout')
+        self.server.handle_error = mock.MagicMock(name='handle_error')
 
-    def test_server_succ(self, MockSocket, mock_handle):
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.TCPServer)
-        self.mock_handle_request(server)
-        self.mock_server_close(server)
+    def tearDown(self):
+        self.server.close()
+        self.server.socket.close.assert_called_once_with()
+        self.socket_patcher.stop()
 
-    def test_server_timeout(self, MockSocket, mock_handle):
+    def test_server_succ(self):
+        self.mock_get_request()
+        self.assert_cleanup_request()
+
+    def test_server_timeout(self):
         timeout = 0.5  # in seconds
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.TCPServer, timeout=timeout)
-        self.mock_handle_request(server, timeout=timeout)
-        self.mock_server_close(server)
+        self.mock_get_request(timeout)
+        self.server.handle_timeout.assert_called_once_with()
 
-    def test_server_error(self, MockSocket, mock_handle):
+    def test_server_error(self):
         error = KeyError
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.TCPServer, mock_error=error)
-        self.mock_handle_request(server, error=True)
-        self.mock_server_close(server)
+        self.server._RequestHandler.side_effect = error
+        self.mock_get_request()
+        self.server.handle_error.assert_called_once_with(self.request,
+                                                         self.client_address)
+        self.assert_cleanup_request()
 
+    def mock_get_request(self, timeout=None):
+        with mock.patch('select.select', autospec=True) as MockSelect:
+            if timeout is None:
+                MockSelect.return_value = ([self.server.socket], [], [])
+            else:
+                MockSelect.return_value = ([], [], [])
 
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-@mock.patch('socketserver.BaseRequestHandler.handle', autospec=True)
-@mock.patch('socket.socket', autospec=True)
-class MockUDPServerTestCase(cookbook.MockServerTestCase):
+            self.server.handle_request(timeout)
+            select.select.assert_called_once_with([self.server.socket], [], [],
+                                                  timeout)
+            if timeout is None:
+                self.server.verify_request.assert_called_once_with(
+                    self.request,
+                    self.client_address)
+                self.server.socket.accept.assert_called_once_with()
 
-    def mock_get_request(self, server_socket):
-        '''Mock get_request() for UDP server.'''
-        data = 'mock data'
-        server_socket.recvfrom.return_value = (data,
-                                               self.client_address)
-        self.request = (data, server_socket)
-
-    def test_server_succ(self, MockSocket, mock_handle):
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.UDPServer)
-        self.mock_handle_request(server)
-        self.mock_server_close(server)
-
-    def test_server_timeout(self, MockSocket, mock_handle):
-        timeout = 0.5  # in seconds
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.UDPServer, timeout=timeout)
-        self.mock_handle_request(server, timeout=timeout)
-        self.mock_server_close(server)
-
-    def test_server_error(self, MockSocket, mock_handle):
-        error = KeyError
-        server = self.mock_server(MockSocket, mock_handle,
-                                  socketserver.UDPServer, mock_error=error)
-        self.mock_handle_request(server, error=True)
-        self.mock_server_close(server)
+    def assert_cleanup_request(self):
+        self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
+        self.request.close.assert_called_once_with()
 
 
 if __name__ == '__main__':
