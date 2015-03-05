@@ -88,7 +88,7 @@ class TCPServerV4(object):
                 data = self.rfile.readline().strip()
                 self.wfile.write(data)
 
-        server = cookbook.TCPServerV4('', MyTCPRequestHandler)
+        server = cookbook.TCPServerV4(('', 8000), MyTCPRequestHandler)
         server.run()
 
     '''
@@ -228,7 +228,7 @@ class TCPServer(TCPServerV4):
                 data = self.rfile.readline().strip()
                 self.wfile.write(data)
 
-        server = cookbook.TCPServer('', MyTCPRequestHandler)
+        server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
         server.run()
 
     '''
