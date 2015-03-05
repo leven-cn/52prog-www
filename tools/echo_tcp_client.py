@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-'''Echo TCP server.
+'''Echo TCP client.
 
 Copyright 2015 Li Yun <leven.cn@gmail.com>.
 
@@ -17,8 +17,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 '''
 
-import cookbook
+import socket
 
 
-server = cookbook.TCPServer((None, 8000), cookbook.EchoTCPRequestHandler)
-server.run(3)
+client = None
+try:
+    client = socket.create_connection(('localhost', 8000), 3.0)
+    client.sendall(b'echo data')
+    data = client.recv(1024)
+    print('from server: ', data)
+finally:
+    if client is not None:
+        client.close()
