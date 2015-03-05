@@ -89,11 +89,7 @@ class TCPServerV4(object):
                 self.wfile.write(data)
 
         server = cookbook.TCPServerV4('', MyTCPRequestHandler)
-        try:
-            while True:
-                server.handle_request()
-        finally:
-            server.close()
+        server.run()
 
     '''
 
@@ -109,6 +105,20 @@ class TCPServerV4(object):
     def close(self):
         '''Clean up the server.'''
         self.socket.close()
+
+    def run(self, timeout=None):
+        '''Run the server.
+
+        @param timeout a time-out in seconds. When the timeout argument is
+                       omitted the function blocks until at least one request
+                       is ready.
+
+        '''
+        try:
+            while True:
+                self.handle_request(timeout)
+        finally:
+            self.close()
 
     def handle_request(self, timeout=None):
         '''Handle one request.
@@ -219,11 +229,7 @@ class TCPServer(TCPServerV4):
                 self.wfile.write(data)
 
         server = cookbook.TCPServer('', MyTCPRequestHandler)
-        try:
-            while True:
-                server.handle_request()
-        finally:
-            server.close()
+        server.run()
 
     '''
 
