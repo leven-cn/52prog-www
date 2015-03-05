@@ -172,43 +172,19 @@ class TCPServerTestCase(unittest.TestCase):
 
 class RequestHandlerTestCase(unittest.TestCase):
 
-    def test_base_request_handler(self):
-        # Can't instantiate abstract class BaseRequestHandler.
+    def test_request_handler_abc(self):
+        # Can't instantiate abstract class RequestHandler.
         with self.assertRaises(TypeError):
-            cookbook.BaseRequestHandler(None, None, None)
-
-    def test_tcp_request_handler_error(self):
-        # Can't instantiate abstract class TCPRequestHandler.
-        with self.assertRaises(TypeError):
-            cookbook.TCPRequestHandler(None, None, None)
+            cookbook.RequestHandler(None, None, None)
 
     @unittest.skipIf(sys.version_info < (3, 3),
                      'unittest.mock since Python 3.3')
     @mock.patch('socket.socket', autospec=True)
-    def test_tcp_request_handler_succ(self, MockSocket):
-        # Create a subclass for TCPRequestHandler.
-        class MyTCPRequestHandler(cookbook.TCPRequestHandler):
-            def handle(self):
-                data = self.rfile.readline().strip()
-                self.wfile.write(data)
-
-        mock_socket = MockSocket.return_value
-        handler = MyTCPRequestHandler(mock_socket, None, None)
-        handler.connection.makefile.assert_any_call('rb', mock.ANY)
-        handler.connection.makefile.assert_any_call('wb', mock.ANY)
-        handler.rfile.readline.assert_called_once_with()
-        handler.wfile.write.assert_called_once_with(mock.ANY)
-        handler.rfile.close.assert_called_with()
-        handler.wfile.close.assert_called_with()
-
-    @unittest.skipIf(sys.version_info < (3, 3),
-                     'unittest.mock since Python 3.3')
-    @mock.patch('socket.socket', autospec=True)
-    def test_base_request_handler_succ(self, MockSocket):
+    def test_request_handler_succ(self, MockSocket):
         bufsize = 1024
 
-        # Create a subclass for BaseRequestHandler.
-        class MyTCPRequestHandler(cookbook.BaseRequestHandler):
+        # Create a subclass for RequestHandler.
+        class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
                 data = self.connection.recv(bufsize).strip()
                 self.connection.sendall(data)
