@@ -186,13 +186,13 @@ class RequestHandlerTestCase(unittest.TestCase):
         # Create a subclass for RequestHandler.
         class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
-                data = self.connection.recv(bufsize).strip()
-                self.connection.sendall(data)
+                data = self.recv(bufsize)
+                self.send(data)
 
         mock_socket = MockSocket.return_value
         handler = MyTCPRequestHandler(mock_socket, None, None)
-        handler.connection.recv.assert_called_once_with(bufsize)
-        handler.connection.sendall.assert_called_once_with(mock.ANY)
+        mock_socket.recv.assert_called_once_with(mock.ANY)
+        mock_socket.sendall.assert_called_once_with(mock.ANY)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2, catchbreak=True)

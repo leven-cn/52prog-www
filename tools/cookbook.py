@@ -85,8 +85,8 @@ class TCPServerV4(object):
 
         class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
-                data = self.connection.recv(1024).strip()
-                self.connection.sendall(data)
+                data = self.recv(1024)
+                self.send(data)
 
         server = cookbook.TCPServerV4(('', 8000), MyTCPRequestHandler)
         server.run()
@@ -227,8 +227,8 @@ class TCPServer(TCPServerV4):
 
         class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
-                data = self.connection.recv(1024).strip()
-                self.connection.sendall(data)
+                data = self.recv(1024)
+                self.send(data)
 
         server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
         server.run()
@@ -272,7 +272,6 @@ class RequestHandler(metaclass=ABCMeta):
 
     Instance Attributes:
 
-        - connection: a client request connection
         - client_address: client address (Read-Only)
         - server: server instance (Read-Only)
 
@@ -281,7 +280,7 @@ class RequestHandler(metaclass=ABCMeta):
     '''
 
     def __init__(self, request, client_address, server):
-        self.connection = request
+        self._connection = request
         self.client_address = client_address
         self.server = server
         self.setup()
@@ -310,9 +309,28 @@ class RequestHandler(metaclass=ABCMeta):
         '''
         pass
 
+    def recv(self, bufsize):
+        '''Receive data from client.
+
+        @param bufsize buffer size
+        @exception OSError raised by socket.recv()
+        @return data from client
+
+        '''
+        return self._connection.recv(bufsize)
+
+    def send(self, data):
+        '''Send data to client.
+
+        @param data data to be sent to client
+        @exception OSError raisd by socket.sendall()
+
+        '''
+        self._connection.sendall(data)
+
 
 class EchoTCPRequestHandler(RequestHandler):
     '''Echo server based on TCP.'''
     def handle(self):
-        data = self.connection.recv(1024).strip()
-        self.connection.sendall(data)
+        data = self.recv(1024)
+        self.send(data)
