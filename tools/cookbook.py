@@ -99,6 +99,8 @@ class TCPServerV4(object):
         self._RequestHandler = RequestHandler
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(None)  # blocking mode for socket.makefile()
+        if __debug__:
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind(server_address)
         self.socket.listen(self._request_queue_size)
 
@@ -249,6 +251,9 @@ class TCPServer(TCPServerV4):
                 self.socket = None
                 continue
             self.socket.settimeout(None)  # blocking mode for socket.makefile()
+            if __debug__:
+                self.socket.setsockopt(socket.SOL_SOCKET,
+                                       socket.SO_REUSEADDR, 1)
             try:
                 self.socket.bind(sockaddr)
                 self.socket.listen(self._request_queue_size)
