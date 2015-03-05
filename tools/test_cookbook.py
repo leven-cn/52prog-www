@@ -31,7 +31,7 @@ class GeneralTestCase(cookbook.GeneralTestCase):
 
     def setUp(self):
         super(GeneralTestCase, self).setUp()
-        self.test_modules = [__file__, 'cookbook.py']
+        self.test_modules = [__file__, 'cookbook.py', 'echo_tcp_server.py']
 
 
 @unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')

@@ -107,7 +107,7 @@ class TCPServerV4(object):
         self.socket.close()
 
     def run(self, timeout=None):
-        '''Run the server.
+        '''Run the server forever until SIGINT/KeyboardInterrupt occurred.
 
         @param timeout a time-out in seconds. When the timeout argument is
                        omitted the function blocks until at least one request
@@ -346,3 +346,10 @@ class TCPRequestHandler(BaseRequestHandler):
                 pass
         self.wfile.close()
         self.rfile.close()
+
+
+class EchoTCPRequestHandler(TCPRequestHandler):
+    '''Echo server based on TCP.'''
+    def handle(self):
+        data = self.rfile.readline().strip()
+        self.wfile.write(data)
