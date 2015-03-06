@@ -1,2 +1,2 @@
 # 52prog-www
-Web system of 52prog.com.
+Web Front-End of 52prog.com.
