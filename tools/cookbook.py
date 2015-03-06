@@ -264,6 +264,12 @@ class RequestHandler(metaclass=ABCMeta):
         self._rfile = request.makefile('rb')
 
         # io.BufferedWriter instance, unbuffered.
+        #
+        # We make `_wfile` unbuffered because:
+        # (a) often after a write() we want to read and we need to flush the
+        #     line;
+        # (b) big writes to unbuffered files are typically optimized by
+        #     stdio even when big reads aren't.
         self._wfile = request.makefile('wb', 0)
 
         try:
