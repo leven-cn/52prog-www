@@ -62,21 +62,23 @@ class TCPServerTestCase(unittest.TestCase):
             def handle(self):
                 TCPServerTestCase.mock_handle()
 
-        # Mock a server.
-        self.servers = []
-        for ServerClass in (cookbook.TCPServerV4,):
-            server = ServerClass(self.server_address, MyTCPRequestHandler)
-            server.socket.bind.assert_called_once_with(self.server_address)
-            server.socket.listen.assert_called_once_with(mock.ANY)
+        # Mock servers for both IPv4 and IPv6.
+        server_ipv4 = cookbook.TCPServer(self.server_address,
+                                         MyTCPRequestHandler, force_ipv4=True)
+        server_ipv4.socket.bind.assert_called_with(self.server_address)
+        server_ipv6 = cookbook.TCPServer(self.server_address,
+                                         MyTCPRequestHandler)
+        server_ipv4.socket.bind.assert_called_with(('::', 8000, 0, 0))
+        self.servers = (server_ipv4, server_ipv6)
+        for server in self.servers:
+            server.socket.listen.assert_called_with(mock.ANY)
             server.handle_timeout = mock.MagicMock(name='handle_timeout')
             server.handle_error = mock.MagicMock(name='handle_error')
-
-            self.servers.append(server)
 
     def tearDown(self):
         for server in self.servers:
             server.close()
-            server.socket.close.assert_called_once_with()
+            server.socket.close.assert_called_with()
         self.socket_patcher.stop()
 
     def test_server_succ(self):
@@ -111,12 +113,12 @@ class TCPServerTestCase(unittest.TestCase):
             select.select.assert_called_once_with([server.socket], [], [],
                                                   timeout)
             if timeout is None:
-                server.socket.accept.assert_called_once_with()
+                server.socket.accept.assert_called_with()
                 self.mock_handle.assert_called_with()
 
     def assert_cleanup_request(self):
-        self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
-        self.request.close.assert_called_once_with()
+        self.request.shutdown.assert_called_with(socket.SHUT_WR)
+        self.request.close.assert_called_with()
 
 
 if __name__ == '__main__':

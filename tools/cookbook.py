@@ -71,8 +71,8 @@ def _eintr_retry(func, *args):
                 raise
 
 
-class TCPServerV4(object):
-    '''A tiny TCP server, IPv4 only.
+class TCPServer(object):
+    '''A tiny TCP server, both IPv4 and IPv6 support.
 
     This class is built upon the `socket` and `select` modules.
 
@@ -87,21 +87,60 @@ class TCPServerV4(object):
                 data = self.readline()
                 self.write(data)
 
-        server = cookbook.TCPServerV4(('', 8000), MyTCPRequestHandler)
+        server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
         server.run()
 
     '''
 
     _request_queue_size = 5
 
-    def __init__(self, server_address, RequestHandlerClass):
+    def __init__(self, server_address, RequestHandlerClass, force_ipv4=False):
         self._RequestHandler = RequestHandlerClass
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.settimeout(None)  # blocking mode for socket.makefile()
-        if __debug__:
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind(server_address)
-        self.socket.listen(self._request_queue_size)
+
+        if socket.has_ipv6 and not force_ipv4:
+            self.socket = None
+            host, port = server_address
+            for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC,
+                                          socket.SOCK_STREAM, 0,
+                                          socket.AI_PASSIVE):
+                family, type, proto, canonname, sockaddr = res
+                try:
+                    self.socket = socket.socket(family, type, proto)
+                except OSError:
+                    self.socket = None
+                    continue
+
+                # blocking mode for socket.makefile()
+                self.socket.settimeout(None)
+
+                # debug purpose
+                if __debug__:
+                    self.socket.setsockopt(socket.SOL_SOCKET,
+                                           socket.SO_REUSEADDR, 1)
+
+                try:
+                    self.socket.bind(sockaddr)
+                    self.socket.listen(self._request_queue_size)
+                except OSError:
+                    self.socket.close()
+                    self.socket = None
+                    continue
+                break
+
+            if self.socket is None:
+                raise OSError
+
+        else:  # IPv4 Only
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(None)  # blocking mode for socket.makefile()
+
+            # debug purpose
+            if __debug__:
+                self.socket.setsockopt(socket.SOL_SOCKET,
+                                       socket.SO_REUSEADDR, 1)
+
+            self.socket.bind(server_address)
+            self.socket.listen(self._request_queue_size)
 
     def close(self):
         '''Clean up the server.'''
@@ -203,59 +242,6 @@ class TCPServerV4(object):
         except OSError:
             pass  # some platforms may raise ENOTCONN here
         request.close()
-
-
-class TCPServer(TCPServerV4):
-    '''A tiny TCP server, both IPv4 and IPv6 support.
-
-    This class is built upon the `socket` and `select` modules.
-
-    Instance Attributes:
-
-        - socket: the socket object of server
-
-    Simple Usage:
-
-        class MyTCPRequestHandler(cookbook.RequestHandler):
-            def handle(self):
-                data = self.readline()
-                self.write(data)
-
-        server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
-        server.run()
-
-    '''
-
-    _request_queue_size = 5
-
-    def __init__(self, server_address, RequestHandlerClass):
-        self._RequestHandler = RequestHandlerClass
-        self.socket = None
-        host, port = server_address
-        for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC,
-                                      socket.SOCK_STREAM, 0,
-                                      socket.AI_PASSIVE):
-            family, type, proto, canonname, sockaddr = res
-            try:
-                self.socket = socket.socket(family, type, proto)
-            except OSError:
-                self.socket = None
-                continue
-            self.socket.settimeout(None)  # blocking mode for socket.makefile()
-            if __debug__:
-                self.socket.setsockopt(socket.SOL_SOCKET,
-                                       socket.SO_REUSEADDR, 1)
-            try:
-                self.socket.bind(sockaddr)
-                self.socket.listen(self._request_queue_size)
-            except OSError:
-                self.socket.close()
-                self.socket = None
-                continue
-            break
-
-        if self.socket is None:
-            raise OSError
 
 
 class RequestHandler(metaclass=ABCMeta):
