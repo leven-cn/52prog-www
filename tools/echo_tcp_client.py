@@ -23,7 +23,7 @@ import socket
 client = None
 try:
     client = socket.create_connection(('localhost', 8000), 3.0)
-    client.sendall(b'echo data')
+    client.sendall(b'echo data\n')
     data = client.recv(1024)
     print('from server: ', data)
 finally:

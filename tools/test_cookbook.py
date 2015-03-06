@@ -31,89 +31,25 @@ class GeneralTestCase(cookbook.GeneralTestCase):
 
     def setUp(self):
         super(GeneralTestCase, self).setUp()
-        self.test_modules = [__file__, 'cookbook.py', 'echo_tcp_server.py']
-
-
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-class TCPServerV4TestCase(unittest.TestCase):
-
-    def setUp(self):
-        self.server_address = (None, 8000)
-        self.client_address = ('client.host', 123456)
-        self.fd = 1
-
-        # Mock a request.
-        MockClientSocket = mock.MagicMock(name='ClientSocket')
-        self.request = MockClientSocket.return_value
-
-        # Mock a server socket.
-        self.socket_patcher = mock.patch('socket.socket', spec=True)
-        MockSocket = self.socket_patcher.start()
-        server_socket = MockSocket.return_value
-        server_socket.fileno.return_value = self.fd
-        server_socket.accept.return_value = (self.request, self.client_address)
-
-        # Mock a server.
-        request_handler = mock.MagicMock(name='RequestHandler')
-        self.server = cookbook.TCPServerV4(self.server_address,
-                                           request_handler)
-        self.server.socket.bind.assert_called_once_with(self.server_address)
-        self.server.socket.listen.assert_called_once_with(mock.ANY)
-        self.server.handle_timeout = mock.MagicMock(name='handle_timeout')
-        self.server.handle_error = mock.MagicMock(name='handle_error')
-
-    def tearDown(self):
-        self.server.close()
-        self.server.socket.close.assert_called_once_with()
-        self.socket_patcher.stop()
-
-    def test_server_succ(self):
-        self.mock_get_request()
-        self.assert_cleanup_request()
-
-    def test_server_timeout(self):
-        timeout = 0.5  # in seconds
-        self.mock_get_request(timeout)
-        self.server.handle_timeout.assert_called_once_with()
-
-    def test_server_error(self):
-        error = KeyError
-        self.server._RequestHandler.side_effect = error
-        self.mock_get_request()
-        self.server.handle_error.assert_called_once_with(self.request,
-                                                         self.client_address)
-        self.assert_cleanup_request()
-
-    def mock_get_request(self, timeout=None):
-        with mock.patch('select.select', autospec=True) as MockSelect:
-            if timeout is None:
-                MockSelect.return_value = ([self.server.socket], [], [])
-            else:
-                MockSelect.return_value = ([], [], [])
-
-            self.server.handle_request(timeout)
-            select.select.assert_called_once_with([self.server.socket], [], [],
-                                                  timeout)
-            if timeout is None:
-                self.server.socket.accept.assert_called_once_with()
-
-    def assert_cleanup_request(self):
-        self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
-        self.request.close.assert_called_once_with()
+        self.test_modules = [__file__, 'cookbook.py',
+                             'echo_tcp_server.py', 'echo_tcp_client.py']
 
 
 @unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
 class TCPServerTestCase(unittest.TestCase):
 
+    # Mock a request handler.
+    mock_handle = mock.MagicMock(name='handle')
+
     def setUp(self):
         self.server_address = (None, 8000)
-        host, port = self.server_address
         self.client_address = ('client.host', 123456)
         self.fd = 1
 
         # Mock a request.
         MockClientSocket = mock.MagicMock(name='ClientSocket')
         self.request = MockClientSocket.return_value
+        self.request.makefile.return_value = None
 
         # Mock a server socket.
         self.socket_patcher = mock.patch('socket.socket', spec=True)
@@ -122,77 +58,66 @@ class TCPServerTestCase(unittest.TestCase):
         server_socket.fileno.return_value = self.fd
         server_socket.accept.return_value = (self.request, self.client_address)
 
+        class MyTCPRequestHandler(cookbook.RequestHandler):
+            def handle(self):
+                TCPServerTestCase.mock_handle()
+
         # Mock a server.
-        request_handler = mock.MagicMock(name='RequestHandler')
-        self.server = cookbook.TCPServer(self.server_address, request_handler)
-        self.server.socket.bind.assert_called_once_with(('::', port, 0, 0))
-        self.server.socket.listen.assert_called_once_with(mock.ANY)
-        self.server.handle_timeout = mock.MagicMock(name='handle_timeout')
-        self.server.handle_error = mock.MagicMock(name='handle_error')
+        self.servers = []
+        for ServerClass in (cookbook.TCPServerV4,):
+            server = ServerClass(self.server_address, MyTCPRequestHandler)
+            server.socket.bind.assert_called_once_with(self.server_address)
+            server.socket.listen.assert_called_once_with(mock.ANY)
+            server.handle_timeout = mock.MagicMock(name='handle_timeout')
+            server.handle_error = mock.MagicMock(name='handle_error')
+
+            self.servers.append(server)
 
     def tearDown(self):
-        self.server.close()
-        self.server.socket.close.assert_called_once_with()
+        for server in self.servers:
+            server.close()
+            server.socket.close.assert_called_once_with()
         self.socket_patcher.stop()
 
     def test_server_succ(self):
-        self.mock_get_request()
-        self.assert_cleanup_request()
+        for server in self.servers:
+            self.mock_handle_request(server)
+            self.assert_cleanup_request()
 
     def test_server_timeout(self):
         timeout = 0.5  # in seconds
-        self.mock_get_request(timeout)
-        self.server.handle_timeout.assert_called_once_with()
+        for server in self.servers:
+            self.mock_handle_request(server, timeout)
+            server.handle_timeout.assert_called_once_with()
 
     def test_server_error(self):
         error = KeyError
-        self.server._RequestHandler.side_effect = error
-        self.mock_get_request()
-        self.server.handle_error.assert_called_once_with(self.request,
-                                                         self.client_address)
-        self.assert_cleanup_request()
+        for server in self.servers:
+            self.mock_handle.side_effect = error
+            self.mock_handle_request(server)
+            server.handle_error.assert_called_once_with(self.request,
+                                                        self.client_address)
+            self.assert_cleanup_request()
 
-    def mock_get_request(self, timeout=None):
+    def mock_handle_request(self, server, timeout=None):
+        '''Mock handle a request.'''
         with mock.patch('select.select', autospec=True) as MockSelect:
             if timeout is None:
-                MockSelect.return_value = ([self.server.socket], [], [])
+                MockSelect.return_value = ([server.socket], [], [])
             else:
                 MockSelect.return_value = ([], [], [])
 
-            self.server.handle_request(timeout)
-            select.select.assert_called_once_with([self.server.socket], [], [],
+            server.handle_request(timeout)
+            select.select.assert_called_once_with([server.socket], [], [],
                                                   timeout)
             if timeout is None:
-                self.server.socket.accept.assert_called_once_with()
+                server.socket.accept.assert_called_once_with()
+                self.mock_handle.assert_called_with()
 
     def assert_cleanup_request(self):
         self.request.shutdown.assert_called_once_with(socket.SHUT_WR)
         self.request.close.assert_called_once_with()
 
-
-class RequestHandlerTestCase(unittest.TestCase):
-
-    def test_request_handler_abc(self):
-        # Can't instantiate abstract class RequestHandler.
-        with self.assertRaises(TypeError):
-            cookbook.RequestHandler(None, None, None)
-
-    @unittest.skipIf(sys.version_info < (3, 3),
-                     'unittest.mock since Python 3.3')
-    @mock.patch('socket.socket', autospec=True)
-    def test_request_handler_succ(self, MockSocket):
-        bufsize = 1024
-
-        # Create a subclass for RequestHandler.
-        class MyTCPRequestHandler(cookbook.RequestHandler):
-            def handle(self):
-                data = self.recv(bufsize)
-                self.send(data)
-
-        mock_socket = MockSocket.return_value
-        handler = MyTCPRequestHandler(mock_socket, None, None)
-        mock_socket.recv.assert_called_once_with(mock.ANY)
-        mock_socket.sendall.assert_called_once_with(mock.ANY)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2, catchbreak=True)

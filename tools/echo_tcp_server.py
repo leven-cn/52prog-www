@@ -20,5 +20,5 @@ limitations under the License.
 import cookbook
 
 
-server = cookbook.TCPServer((None, 8000), cookbook.EchoTCPRequestHandler)
+server = cookbook.TCPServer((None, 8000), cookbook.EchoRequestHandler)
 server.run(3)

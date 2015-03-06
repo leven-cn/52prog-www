@@ -62,7 +62,6 @@ def _eintr_retry(func, *args):
     @param func the system call
     @return returned by the system call
     @exception OSError raised by the system call
-
     '''
     while True:
         try:
@@ -85,8 +84,8 @@ class TCPServerV4(object):
 
         class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
-                data = self.recv(1024)
-                self.send(data)
+                data = self.readline()
+                self.write(data)
 
         server = cookbook.TCPServerV4(('', 8000), MyTCPRequestHandler)
         server.run()
@@ -114,7 +113,6 @@ class TCPServerV4(object):
         @param timeout a time-out in seconds. When the timeout argument is
                        omitted the function blocks until at least one request
                        is ready.
-
         '''
         try:
             while True:
@@ -128,8 +126,7 @@ class TCPServerV4(object):
         @param timeout a time-out in seconds. When the timeout argument is
                        omitted the function blocks until at least one request
                        is ready.
-        @exception OSError raised by select.select() or socket.accept()
-
+        @exception OSError
         '''
 
         # Polling reduces our responsiveness to a
@@ -147,7 +144,6 @@ class TCPServerV4(object):
         '''Handle timeout.
 
         May be override.
-
         '''
         pass
 
@@ -158,7 +154,6 @@ class TCPServerV4(object):
         @param client_address the client address
 
         May be override.
-
         '''
         pass
 
@@ -169,15 +164,13 @@ class TCPServerV4(object):
         @param client_address the client address
 
         May be override.
-
         '''
         return True
 
     def _handle_request_noblock(self):
         '''Handle one request, without blocking.
 
-        @exception OSError raised by socket.accept()
-
+        @exception OSError
         '''
         request, client_address = self.socket.accept()
         if self.verify_request(request, client_address):
@@ -192,7 +185,6 @@ class TCPServerV4(object):
 
         @param request the client request
         @param client_address the client address
-
         '''
         self._RequestHandler(request, client_address, self)
         self._close_request(request)
@@ -201,7 +193,6 @@ class TCPServerV4(object):
         '''Clean up an individual request and shutdown it.
 
         @param request the client request
-
         '''
         try:
             # Explicitly shutdown.
@@ -227,8 +218,8 @@ class TCPServer(TCPServerV4):
 
         class MyTCPRequestHandler(cookbook.RequestHandler):
             def handle(self):
-                data = self.recv(1024)
-                self.send(data)
+                data = self.readline()
+                self.write(data)
 
         server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
         server.run()
@@ -268,7 +259,8 @@ class TCPServer(TCPServerV4):
 
 
 class RequestHandler(metaclass=ABCMeta):
-    '''This ABC class is instantiated for each request to be handled.
+    '''The subclass of this class is instantiated for each request to be
+    handled.
 
     Instance Attributes:
 
@@ -276,61 +268,62 @@ class RequestHandler(metaclass=ABCMeta):
         - server: server instance (Read-Only)
 
     Subclasses MUST implement the handle() method.
-
     '''
 
     def __init__(self, request, client_address, server):
-        self._connection = request
         self.client_address = client_address
         self.server = server
-        self.setup()
+
+        # io.BufferedReader instance, default buffering.
+        self._rfile = request.makefile('rb')
+
+        # io.BufferedWriter instance, unbuffered.
+        self._wfile = request.makefile('wb', 0)
+
         try:
             self.handle()
         finally:
-            self.teardown()
-
-    def setup(self):
-        '''Set up a request handler.
-
-        May be override.
-
-        '''
-        pass
+            if not self._wfile.closed:
+                try:
+                    self._wfile.flush()
+                except OSError:
+                    pass
+            self._wfile.close()
+            self._rfile.close()
 
     @abstractmethod
     def handle(self):
         pass
 
-    def teardown(self):
-        '''Tear down a request handling.
+    def readline(self):
+        '''Read one line from client.
 
-        May be override.
-
-        '''
-        pass
-
-    def recv(self, bufsize):
-        '''Receive data from client.
-
-        @param bufsize buffer size
-        @exception OSError raised by socket.recv()
+        @exception OSError
         @return data from client
-
         '''
-        return self._connection.recv(bufsize)
+        return self._rfile.readline()
 
-    def send(self, data):
-        '''Send data to client.
+    def read(self, size=-1):
+        '''Read up to `size` bytes from client. If size omitted, read all the
+        bytes from the stream until EOF.
 
-        @param data data to be sent to client
-        @exception OSError raisd by socket.sendall()
-
+        @param size bytes of data
+        @exception OSError
+        @return data from client
         '''
-        self._connection.sendall(data)
+        return self._rfile.read(size)
+
+    def write(self, data):
+        '''Write data to client.
+
+        @param data data to be written to client
+        @exception OSError
+        '''
+        self._wfile.write(data)
 
 
-class EchoTCPRequestHandler(RequestHandler):
-    '''Echo server based on TCP.'''
+class EchoRequestHandler(RequestHandler):
+    '''Echo server request handler.'''
     def handle(self):
-        data = self.recv(1024)
-        self.send(data)
+        data = self.readline()
+        self.write(data)
