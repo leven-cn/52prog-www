@@ -19,9 +19,11 @@ limitations under the License.
 
 import sys
 from abc import ABCMeta, abstractmethod
+import io
 import errno
 import socket
 import select
+import queue
 from unittest import mock
 import unittest
 
@@ -56,7 +58,17 @@ class GeneralTestCase(unittest.TestCase):
                          .format(result.total_errors))
 
 
-def _eintr_retry(func, *args):
+def debug(msg):
+    '''Print debugging message.
+
+    @msg debugging message
+
+    '''
+    if __debug__:
+        print(msg, file=sys.stderr)
+
+
+def eintr_retry(func, *args):
     ''''Restart a system call interrupted by `EINTR`.
 
     @param func the system call
@@ -69,6 +81,7 @@ def _eintr_retry(func, *args):
         except OSError as e:
             if e.errno != errno.EINTR:
                 raise
+            debug('Ignore EINTR')
 
 
 class TCPServer(object):
@@ -78,14 +91,15 @@ class TCPServer(object):
 
     Instance Attributes:
 
-        - socket: the socket object of server
+        - socket: the socket object of server, non-blocking mode
+        - server_address: server's address
+        - server_name: server's name
 
     Simple Usage:
 
         class MyTCPRequestHandler(cookbook.RequestHandler):
-            def handle(self):
-                data = self.readline()
-                self.write(data)
+            def handle(self, data):
+                return data.encode()
 
         server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
         server.run()
@@ -110,10 +124,9 @@ class TCPServer(object):
                     self.socket = None
                     continue
 
-                # blocking mode for socket.makefile()
-                self.socket.settimeout(None)
+                self.socket.settimeout(0.0)
 
-                # debug purpose
+                # make sense in testing environment
                 if __debug__:
                     self.socket.setsockopt(socket.SOL_SOCKET,
                                            socket.SO_REUSEADDR, 1)
@@ -132,9 +145,9 @@ class TCPServer(object):
 
         else:  # IPv4 Only
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(None)  # blocking mode for socket.makefile()
+            self.socket.settimeout(0.0)
 
-            # debug purpose
+            # make sense in testing environment
             if __debug__:
                 self.socket.setsockopt(socket.SOL_SOCKET,
                                        socket.SO_REUSEADDR, 1)
@@ -142,51 +155,89 @@ class TCPServer(object):
             self.socket.bind(server_address)
             self.socket.listen(self._request_queue_size)
 
-    def close(self):
-        '''Clean up the server.'''
-        self.socket.close()
+        self.server_address = self.socket.getsockname()
+        self.server_name = socket.getfqdn(self.server_address[0])
 
-    def run(self, timeout=None):
+    def run(self, bufsize=io.DEFAULT_BUFFER_SIZE):
         '''Run the server forever until SIGINT/KeyboardInterrupt occurred.
 
-        @param timeout a time-out in seconds. When the timeout argument is
-                       omitted the function blocks until at least one request
-                       is ready.
+        @param bufsize buffer size of reading from client
         '''
+        inputs = [self.socket]
+        outputs = []
+        exceptional = []
+        message_queues = {}
+        handler = None
+
         try:
             while True:
-                self.handle_request(timeout)
+                # Block until a request is ready.
+                debug('Waiting for request...')
+                rlist, wlist, xlist = eintr_retry(select.select,
+                                                  inputs, outputs, inputs)
+
+                # Read event
+                for s in rlist:
+                    if s is self.socket:
+                        # A new request coming
+                        request, client_address = s.accept()
+                        debug('A request from {0}'.format(client_address))
+                        if self.verify_request(request, client_address):
+                            request.settimeout(0.0)
+                            inputs.append(request)
+                            message_queues[request] = queue.Queue()
+
+                            handler = self._RequestHandler(client_address)
+                    else:
+                        # Read from client
+                        address = s.getpeername()
+                        try:
+                            data = s.recv(bufsize)
+                        except OSError as err:
+                            debug('Error: reading from {0}: {1}'.format(
+                                address, err))
+                            continue
+                        if data:
+                            debug('Data from {0}: {1}'.format(address, data))
+                            message_queues[s].put(data)
+                            if s not in outputs:
+                                outputs.append(s)
+                        else:
+                            debug('Closing {0}'.format(address))
+                            inputs.remove(s)
+                            if s in outputs:
+                                outputs.remove(s)
+                            self._close_request(s)
+                            del message_queues[s]
+
+                # Write event
+                for s in wlist:
+                    address = s.getpeername()
+                    try:
+                        next_data = message_queues[s].get_nowait()
+                    except queue.Empty:
+                        debug('Queue for {0} empty'.format(address))
+                        outputs.remove(s)
+                    else:
+                        try:
+                            data = handler.handle(next_data.decode())
+                            debug('Sending {0} to {1}'.format(data, address))
+                            s.sendall(data)
+                        except:
+                            self.handle_error(s)
+
+                # Exception event
+                for s in xlist:
+                    debug('Exception condition on {0}'.format(s.getpeername()))
+                    input.remove(s)
+                    if s in outputs:
+                        outputs.remove(s)
+                    self._close_request(s)
+                    del message_queues[s]
         finally:
-            self.close()
+            self.socket.close()
 
-    def handle_request(self, timeout=None):
-        '''Handle one request.
-
-        @param timeout a time-out in seconds. When the timeout argument is
-                       omitted the function blocks until at least one request
-                       is ready.
-        @exception OSError
-        '''
-
-        # Polling reduces our responsiveness to a
-        # shutdown request and wastes CPU at all other times.
-        assert timeout != 0.0, 'timeout=0.0 means a poll and never blocks!'
-        rlist, wlist, xlist = _eintr_retry(select.select,
-                                           [self.socket], [], [], timeout)
-        if len(rlist) == 0:
-            self.handle_timeout()
-            return
-
-        self._handle_request_noblock()
-
-    def handle_timeout(self):
-        '''Handle timeout.
-
-        May be override.
-        '''
-        pass
-
-    def handle_error(self, request, client_address):
+    def handle_error(self, request):
         '''Handle an error gracefully.
 
         @param request the client request
@@ -205,28 +256,6 @@ class TCPServer(object):
         May be override.
         '''
         return True
-
-    def _handle_request_noblock(self):
-        '''Handle one request, without blocking.
-
-        @exception OSError
-        '''
-        request, client_address = self.socket.accept()
-        if self.verify_request(request, client_address):
-            try:
-                self._process_request(request, client_address)
-            except:
-                self.handle_error(request, client_address)
-                self._close_request(request)
-
-    def _process_request(self, request, client_address):
-        '''Process one request after verification.
-
-        @param request the client request
-        @param client_address the client address
-        '''
-        self._RequestHandler(request, client_address, self)
-        self._close_request(request)
 
     def _close_request(self, request):
         '''Clean up an individual request and shutdown it.
@@ -251,71 +280,18 @@ class RequestHandler(metaclass=ABCMeta):
     Instance Attributes:
 
         - client_address: client address (Read-Only)
-        - server: server instance (Read-Only)
 
     Subclasses MUST implement the handle() method.
     '''
 
-    def __init__(self, request, client_address, server):
+    def __init__(self, client_address):
         self.client_address = client_address
-        self.server = server
-
-        # io.BufferedReader instance, default buffering.
-        self._rfile = request.makefile('rb')
-
-        # io.BufferedWriter instance, unbuffered.
-        #
-        # We make `_wfile` unbuffered because:
-        # (a) often after a write() we want to read and we need to flush the
-        #     line;
-        # (b) big writes to unbuffered files are typically optimized by
-        #     stdio even when big reads aren't.
-        self._wfile = request.makefile('wb', 0)
-
-        try:
-            self.handle()
-        finally:
-            if not self._wfile.closed:
-                try:
-                    self._wfile.flush()
-                except OSError:
-                    pass
-            self._wfile.close()
-            self._rfile.close()
 
     @abstractmethod
-    def handle(self):
+    def handle(self, data):
+        '''Return the handling result data.
+
+        @param data input data ('utf-8')
+        @return result (binary) data
+        '''
         pass
-
-    def readline(self):
-        '''Read one line from client.
-
-        @exception OSError
-        @return data from client
-        '''
-        return self._rfile.readline()
-
-    def read(self, size=-1):
-        '''Read up to `size` bytes from client. If size omitted, read all the
-        bytes from the stream until EOF.
-
-        @param size bytes of data
-        @exception OSError
-        @return data from client
-        '''
-        return self._rfile.read(size)
-
-    def write(self, data):
-        '''Write data to client.
-
-        @param data data to be written to client
-        @exception OSError
-        '''
-        self._wfile.write(data)
-
-
-class EchoRequestHandler(RequestHandler):
-    '''Echo server request handler.'''
-    def handle(self):
-        data = self.readline()
-        self.write(data)

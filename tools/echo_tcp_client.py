@@ -23,9 +23,15 @@ import socket
 client = None
 try:
     client = socket.create_connection(('localhost', 8000), 3.0)
-    client.sendall(b'echo data\n')
-    data = client.recv(1024)
-    print('from server: ', data)
+    while True:
+        data = input('Send data, [Q] for quit: ')
+        if data == 'Q':
+            break
+
+        data += '\n'
+        client.sendall(data.encode())
+        data = client.recv(1024)
+        print('from server: ', data)
 finally:
     if client is not None:
         client.close()
