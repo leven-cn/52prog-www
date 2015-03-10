@@ -92,7 +92,7 @@ class TCPServer(object):
     Instance Attributes:
 
         - socket: the socket object of server, non-blocking mode
-        - server_address: server's address
+        - server_address: server's IP address in the form (host, port)
         - server_name: server's name
 
     Simple Usage:
@@ -241,7 +241,7 @@ class TCPServer(object):
         '''Handle an error gracefully.
 
         @param request the client request
-        @param client_address the client address
+        @param client_address the client IP address in the form (host, port)
 
         May be override.
         '''
@@ -251,7 +251,7 @@ class TCPServer(object):
         '''Verify the request.
 
         @param request the client request
-        @param client_address the client address
+        @param client_address the client IP address in the form (host, port)
 
         May be override.
         '''
@@ -279,7 +279,7 @@ class RequestHandler(metaclass=ABCMeta):
 
     Instance Attributes:
 
-        - client_address: client address (Read-Only)
+        - client_address: the client IP address in the form (host,port)
 
     Subclasses MUST implement the handle() method.
     '''
