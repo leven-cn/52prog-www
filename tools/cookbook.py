@@ -65,7 +65,7 @@ def debug(msg):
 
     '''
     if __debug__:
-        print(msg, file=sys.stderr)
+        sys.stderr.write(msg)
 
 
 def eintr_retry(func, *args):
