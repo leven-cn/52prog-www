@@ -2,6 +2,20 @@
 
 '''Python Cookbook.
 
+Requirements
+===
+
+Third Party Packages:
+
+  - pep8
+  - pyyaml
+
+Packages listed above could be installed by (root required):
+
+    pip3 install --upgrade pip
+    pip3 install --upgrade pep8 pyyaml
+
+===
 Copyright 2015 Li Yun <leven.cn@gmail.com>.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +29,22 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+
+Acknowledge
+===
+
+PyYAML is written by Kirill Simonov <xi@resolvent.net>.  It is released
+under the MIT license.
+
 '''
 
 import sys
 from abc import ABCMeta, abstractmethod
 import io
 import errno
+import logging
+import logging.config
 import socket
 import select
 import queue
@@ -28,6 +52,7 @@ from unittest import mock
 import unittest
 
 import pep8
+import yaml
 
 
 class GeneralTestCase(unittest.TestCase):
@@ -58,16 +83,6 @@ class GeneralTestCase(unittest.TestCase):
                          .format(result.total_errors))
 
 
-def debug(msg):
-    '''Print debugging message.
-
-    @msg debugging message
-
-    '''
-    if __debug__:
-        sys.stderr.write(msg)
-
-
 def eintr_retry(func, *args):
     ''''Restart a system call interrupted by `EINTR`.
 
@@ -81,7 +96,6 @@ def eintr_retry(func, *args):
         except OSError as e:
             if e.errno != errno.EINTR:
                 raise
-            debug('Ignore EINTR')
 
 
 class TCPServer(object):
@@ -91,7 +105,6 @@ class TCPServer(object):
 
     Instance Attributes:
 
-        - socket: the socket object of server, non-blocking mode
         - server_address: server's IP address in the form (host, port)
         - server_name: server's name
 
@@ -101,141 +114,271 @@ class TCPServer(object):
             def handle(self, data):
                 return data.encode()
 
-        server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
-        server.run()
+        try:
+            server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
+            server.run()
+        except OSError:
+            pass
+        finally:
+            server.close()
+
+    Logging Levels:
+
+        The numeric values of logging levels are given in the following table.
+        These are primarily of interest if you want to define your own levels,
+        and need them to have specific values relative to the predefined
+        levels. If you define a level with the same numeric value, it
+        overwrites the predefined value; the predefined name is lost.
+
+        Level      | Numeric value
+        =======================
+        CRITICAL   | 50
+        ERROR      | 40
+        WARNING    | 30
+        INFO       | 20
+        DEBUG      | 10
+        NOTSET     | 0
+
+    Default Configuration of Log with YAML-format
+
+        version: 1
+        formatters:
+          default:
+            format: '[%(levelname)s] %(asctime)s %(message)s'
+        handlers:
+          console:
+            class: logging.StreamHandler
+            level: DEBUG
+            formatter: default
+            stream: ext://sys.stdout
+        loggers:
+          TCPServer:
+            level: DEBUG
+            handlers: [console]
+            propagate: no
+        root:
+          level: DEBUG
+          handlers: [console]
 
     '''
 
     _request_queue_size = 5
 
-    def __init__(self, server_address, RequestHandlerClass, force_ipv4=False):
+    def __init__(self, server_address, RequestHandlerClass,
+                 logconf=None, force_ipv4=False):
         self._RequestHandler = RequestHandlerClass
 
         if socket.has_ipv6 and not force_ipv4:
-            self.socket = None
+            self._socket = None
             host, port = server_address
             for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC,
                                           socket.SOCK_STREAM, 0,
                                           socket.AI_PASSIVE):
                 family, type, proto, canonname, sockaddr = res
                 try:
-                    self.socket = socket.socket(family, type, proto)
+                    self._socket = socket.socket(family, type, proto)
                 except OSError:
-                    self.socket = None
+                    self._socket = None
                     continue
 
-                self.socket.settimeout(0.0)
+                self._socket.settimeout(0.0)
 
                 # make sense in testing environment
                 if __debug__:
-                    self.socket.setsockopt(socket.SOL_SOCKET,
-                                           socket.SO_REUSEADDR, 1)
+                    self._socket.setsockopt(socket.SOL_SOCKET,
+                                            socket.SO_REUSEADDR, 1)
 
                 try:
-                    self.socket.bind(sockaddr)
-                    self.socket.listen(self._request_queue_size)
+                    self._socket.bind(sockaddr)
+                    self._socket.listen(self._request_queue_size)
                 except OSError:
-                    self.socket.close()
-                    self.socket = None
+                    self._socket.close()
+                    self._socket = None
                     continue
                 break
 
-            if self.socket is None:
+            if self._socket is None:
                 raise OSError
 
         else:  # IPv4 Only
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(0.0)
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._socket.settimeout(0.0)
 
             # make sense in testing environment
             if __debug__:
-                self.socket.setsockopt(socket.SOL_SOCKET,
-                                       socket.SO_REUSEADDR, 1)
+                self._socket.setsockopt(socket.SOL_SOCKET,
+                                        socket.SO_REUSEADDR, 1)
 
-            self.socket.bind(server_address)
-            self.socket.listen(self._request_queue_size)
+            self._socket.bind(server_address)
+            self._socket.listen(self._request_queue_size)
 
-        self.server_address = self.socket.getsockname()
+        self.server_address = self._socket.getsockname()
         self.server_name = socket.getfqdn(self.server_address[0])
+
+        # Set logging system
+        default_log_conf = {
+            'version': 1,
+            'formatters': {
+                'default': {
+                    'format': '[%(levelname)s] %(asctime)s %(message)s'
+                }
+            },
+            'handlers': {
+                'console': {
+                    'class': 'logging.StreamHandler',
+                    'level': 'DEBUG',
+                    'formatter': 'default',
+                    'stream': 'ext://sys.stderr'
+                }
+            },
+            'loggers': {
+                self.__class__.__name__: {
+                    'level': 'DEBUG',
+                    'handlers': ['console'],
+                    'propagate': False
+                }
+            },
+            'root': {
+                'level': 'DEBUG',
+                'handlers': ['console']
+            }
+        }
+        if logconf is None:
+            self._logfile = 'stderr'
+            logging.config.dictConfig(default_log_conf)
+        else:
+            self._logfile = logconf
+            with open(logconf, 'r') as f:
+                logging.config.dictConfig(yaml.load(f))
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+    @staticmethod
+    def debug(msg):
+        '''Print debugging messages to the console.
+
+        @param msg debugging message
+
+        '''
+        if __debug__:
+            sys.stderr.write(msg)
+
+    def log_debug(self, msg):
+        '''Log a debug-level message.
+
+        @param msg debug-level message
+
+        '''
+        self._logger.debug(msg)
+
+    def log_info(self, msg):
+        '''Log a info-level message.
+
+        @param msg info-level message
+
+        '''
+        self._logger.info(msg)
+
+    def log_error(self, msg):
+        '''Log a error-level message.
+
+        @param msg error-level message
+
+        '''
+        self._logger.error(msg)
+
+    def log_warning(self, msg):
+        '''Log a warning-level message.
+
+        @param msg warning-level message
+
+        '''
+        self._logger.warning(msg)
 
     def run(self, bufsize=io.DEFAULT_BUFFER_SIZE):
         '''Run the server forever until SIGINT/KeyboardInterrupt occurred.
 
         @param bufsize buffer size of reading from client
         '''
-        inputs = [self.socket]
+        inputs = [self._socket]
         outputs = []
         exceptional = []
         message_queues = {}
         handler = None
 
-        try:
-            while True:
-                # Block until a request is ready.
-                debug('Waiting for request...')
-                rlist, wlist, xlist = eintr_retry(select.select,
-                                                  inputs, outputs, inputs)
+        self.log_debug('Hosting on {0}, logging to {1} ...'.format(
+            self.server_name, self._logfile))
+        while True:
+            # Block until a request is ready.
+            self.log_debug('Waiting for request ...')
+            rlist, wlist, xlist = eintr_retry(select.select,
+                                              inputs, outputs, inputs)
 
-                # Read event
-                for s in rlist:
-                    if s is self.socket:
-                        # A new request coming
-                        request, client_address = s.accept()
-                        debug('A request from {0}'.format(client_address))
-                        if self.verify_request(request, client_address):
-                            request.settimeout(0.0)
-                            inputs.append(request)
-                            message_queues[request] = queue.Queue()
+            # Read event
+            for s in rlist:
+                if s is self._socket:
+                    # A new request coming
+                    request, client_addr = s.accept()
+                    self.log_info('A request from {0}'.format(client_addr))
+                    if self.verify_request(request, client_addr):
+                        request.settimeout(0.0)
+                        inputs.append(request)
+                        message_queues[request] = queue.Queue()
 
-                            handler = self._RequestHandler(client_address)
-                    else:
-                        # Read from client
-                        address = s.getpeername()
-                        try:
-                            data = s.recv(bufsize)
-                        except OSError as err:
-                            debug('Error: reading from {0}: {1}'.format(
-                                address, err))
-                            continue
-                        if data:
-                            debug('Data from {0}: {1}'.format(address, data))
-                            message_queues[s].put(data)
-                            if s not in outputs:
-                                outputs.append(s)
-                        else:
-                            debug('Closing {0}'.format(address))
-                            inputs.remove(s)
-                            if s in outputs:
-                                outputs.remove(s)
-                            self._close_request(s)
-                            del message_queues[s]
-
-                # Write event
-                for s in wlist:
+                        handler = self._RequestHandler(client_addr)
+                else:
+                    # Read from client
                     address = s.getpeername()
                     try:
-                        next_data = message_queues[s].get_nowait()
-                    except queue.Empty:
-                        debug('Queue for {0} empty'.format(address))
-                        outputs.remove(s)
+                        data = s.recv(bufsize)
+                    except OSError as err:
+                        self.log_error('Reading from {0}: {1}'.format(
+                            address, err))
+                        continue
+                    if data:
+                        self.log_debug('Data from {0}: {1}'.format(
+                            address, data))
+                        message_queues[s].put(data)
+                        if s not in outputs:
+                            outputs.append(s)
                     else:
-                        try:
-                            data = handler.handle(next_data.decode())
-                            debug('Sending {0} to {1}'.format(data, address))
-                            s.sendall(data)
-                        except:
-                            self.handle_error(s)
+                        self.log_info('Closing {0}'.format(address))
+                        inputs.remove(s)
+                        if s in outputs:
+                            outputs.remove(s)
+                        self._close_request(s)
+                        del message_queues[s]
 
-                # Exception event
-                for s in xlist:
-                    debug('Exception condition on {0}'.format(s.getpeername()))
-                    input.remove(s)
-                    if s in outputs:
-                        outputs.remove(s)
-                    self._close_request(s)
-                    del message_queues[s]
-        finally:
-            self.socket.close()
+            # Write event
+            for s in wlist:
+                address = s.getpeername()
+                try:
+                    next_data = message_queues[s].get_nowait()
+                except queue.Empty:
+                    self.log_debug('Queue for {0} empty'.format(address))
+                    outputs.remove(s)
+                else:
+                    try:
+                        data = handler.handle(next_data.decode())
+                        self.log_debug('Sending {0} to {1}'.format(
+                            data, address))
+                        s.sendall(data)
+                    except:
+                        self.handle_error(s)
+
+            # Exception event
+            for s in xlist:
+                self.log_warning('Exception condition on {0}'.format(
+                    s.getpeername()))
+                input.remove(s)
+                if s in outputs:
+                    outputs.remove(s)
+                self._close_request(s)
+                del message_queues[s]
+
+    def close(self):
+        '''Clean up server.'''
+        if self._socket is not None:
+            self._socket.close()
 
     def handle_error(self, request):
         '''Handle an error gracefully.

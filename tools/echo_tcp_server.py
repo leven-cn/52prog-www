@@ -26,5 +26,8 @@ class EchoRequestHandler(cookbook.RequestHandler):
         return data.encode()
 
 
-server = cookbook.TCPServer((None, 8000), EchoRequestHandler)
-server.run()
+try:
+    server = cookbook.TCPServer((None, 8000), EchoRequestHandler)
+    server.run()
+finally:
+    server.close()
