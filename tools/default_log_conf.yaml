@@ -19,7 +19,7 @@ handlers:
     encoding: utf-8
     formatter: default
   logfile-error:
-    class: logging.FileHandler
+    class: logging.handlers.WatchedFileHandler
     level: ERROR
     filename: TCPServer-error.log
     mode: w
