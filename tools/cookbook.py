@@ -3,7 +3,7 @@
 '''Python Cookbook.
 
 Requirements
-===
+======
 
 Third Party Packages:
 
@@ -15,7 +15,7 @@ Packages listed above could be installed by (root required):
     pip3 install --upgrade pip
     pip3 install --upgrade pep8 pyyaml
 
-===
+======
 Copyright 2015 Li Yun <leven.cn@gmail.com>.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +32,7 @@ limitations under the License.
 
 
 Acknowledge
-===
+======
 
 PyYAML is written by Kirill Simonov <xi@resolvent.net>.  It is released
 under the MIT license.
@@ -216,6 +216,13 @@ class TCPServer(object):
         self.server_name = socket.getfqdn(self.server_address[0])
 
         # Set logging system
+        #
+        # Optimization:
+        #
+        #     if logger.isEnabledFor(logging.DEBUG):
+        #         logger.debug('Message with %s, %s', expensive_func1(),
+        #                      expensive_func2())
+        #
         default_log_conf = {
             'version': 1,
             'formatters': {
