@@ -2,6 +2,10 @@
 
 '''Unit Testing for Python Cookbook.
 
+NOTE: This test suite contains no event-loop testing, since no good method for
+testing them.
+
+
 Copyright (c) 2015 Li Yun <leven.cn@gmail.com>
 All Rights Reserved.
 
@@ -58,46 +62,6 @@ class SystemCallTestCase(unittest.TestCase):
         with self.assertRaises(OSError) as err:
             cookbook.eintr_retry(mock_system_call, 'A')
             mock_system_call.assert_called_with('A')
-
-    @unittest.skipIf(True, 'No good testing method for event-loop.')
-    def test_eintr_retry_eintr(self):
-        import errno
-        err = OSError()
-        err.errno = errno.EINTR
-
-        mock_system_call = mock.MagicMock(name='sys_call', side_effect=err)
-
-
-@unittest.skipIf(sys.version_info < (3, 3), 'unittest.mock since Python 3.3')
-class TCPServerTestCase(unittest.TestCase):
-
-    # Mock a request handler.
-    mock_handle = mock.MagicMock(name='handle')
-
-    class MyTCPRequestHandler(cookbook.RequestHandler):
-            def handle(self):
-                TCPServerTestCase.mock_handle()
-
-    def setUp(self):
-        self.server_address = ('', 8000)
-        self.client_address = ('client.host', 123456)
-
-    def test_server_attributes_for_ipv4(self):
-        s = cookbook.TCPServer(self.server_address, self.MyTCPRequestHandler,
-                               force_ipv4=True)
-        self.assertEqual(s.server_address, ('0.0.0.0', 8000))
-        self.assertEqual(s.server_name, socket.gethostname())
-        s.close()
-
-    def test_server_attributes_for_ipv6(self):
-        s = cookbook.TCPServer(self.server_address,
-                               TCPServerTestCase.MyTCPRequestHandler)
-        self.assertEqual(len(s.server_address), 4)
-        self.assertIn(':', s.server_address[0])
-        self.assertEqual(s.server_address[1], 8000)
-        self.assertEqual(s.server_address[2], 0)
-        self.assertEqual(s.server_name, socket.gethostname())
-        s.close()
 
 
 if __name__ == '__main__':

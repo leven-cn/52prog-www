@@ -41,7 +41,6 @@ under the MIT license.
 
 import sys
 from abc import ABCMeta, abstractmethod
-import os
 import io
 import errno
 import logging
@@ -116,7 +115,7 @@ class TCPServer(object):
                 return data.encode()
 
         try:
-            server = cookbook.TCPServer(('', 8000), MyTCPRequestHandler)
+            server = cookbook.TCPServer(('0.0.0.0', 8000), MyTCPRequestHandler)
             server.run()
         except OSError:
             pass
@@ -144,11 +143,15 @@ class TCPServer(object):
 
     _request_queue_size = 5
 
-    def __init__(self, server_address, RequestHandlerClass,
-                 logconf=None, force_ipv4=False):
+    def __init__(self, server_address, RequestHandlerClass, logconf=None):
+
+        import os
+        if os.name != 'posix':
+            raise ValueError('NOT conformance to POSIX!')
+
         self._RequestHandler = RequestHandlerClass
 
-        if socket.has_ipv6 and not force_ipv4:
+        if socket.has_ipv6:
             self._socket = None
             host, port = server_address
             for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC,
@@ -180,7 +183,7 @@ class TCPServer(object):
             if self._socket is None:
                 raise OSError
 
-        else:  # IPv4 Only
+        else:  # for OS not support for IPv6
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.settimeout(0.0)
 
@@ -204,10 +207,6 @@ class TCPServer(object):
         #                      expensive_func2())
         #
         class_name = self.__class__.__name__
-        if os.name == 'posix':
-            logfile_error_handler_class = 'logging.handler.WatchedFileHandler'
-        elif os.name == 'nt':
-            logfile_error_handler_class = 'logging.FileHandler'
         default_log_conf = {
             'version': 1,
             'formatters': {
@@ -233,7 +232,7 @@ class TCPServer(object):
                     'formatter': 'default'
                 },
                 'logfile-error': {
-                    'class': logfile_error_handler_class,
+                    'class': 'logging.handlers.WatchedFileHandler',
                     'level': 'ERROR',
                     'filename': '{0}-error.log'.format(class_name),
                     'mode': 'w',
@@ -313,7 +312,8 @@ class TCPServer(object):
         message_queues = {}
         handler = None
 
-        self.log_info('Hosting on {0} ...'.format(self.server_name))
+        self.log_info('Hosting on {0} ({1})...'.format(
+            self.server_name, self.server_address))
         while True:
             # Block until a request is ready.
             self.log_debug('Waiting for request ...')
