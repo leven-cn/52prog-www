@@ -87,7 +87,7 @@ class TCPServerTestCase(unittest.TestCase):
                                force_ipv4=True)
         self.assertEqual(s.server_address, ('0.0.0.0', 8000))
         self.assertEqual(s.server_name, socket.gethostname())
-        s.socket.close()
+        s.close()
 
     def test_server_attributes_for_ipv6(self):
         s = cookbook.TCPServer(self.server_address,
@@ -97,7 +97,7 @@ class TCPServerTestCase(unittest.TestCase):
         self.assertEqual(s.server_address[1], 8000)
         self.assertEqual(s.server_address[2], 0)
         self.assertEqual(s.server_name, socket.gethostname())
-        s.socket.close()
+        s.close()
 
 
 if __name__ == '__main__':

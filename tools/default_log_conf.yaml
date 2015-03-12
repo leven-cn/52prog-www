@@ -1,0 +1,35 @@
+# Default configuration of logging for TCP server
+version: 1
+formatters:
+  default:
+    format: '[%(levelname)s] %(asctime)s %(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: default
+    stream: ext://sys.stderr
+  logfile:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    filename: TCPServer.log
+    mode: a
+    maxBytes: 1048576
+    backupCount: 5
+    encoding: utf-8
+    formatter: default
+  logfile-error:
+    class: logging.FileHandler
+    level: ERROR
+    filename: TCPServer-error.log
+    mode: w
+    encoding: utf-8
+    formatter: default
+loggers:
+  TCPServer:
+    level: DEBUG
+    handlers: [console, logfile, logfile-error]
+    propagate: no
+root:
+  level: DEBUG
+  handlers: [console]
