@@ -41,6 +41,7 @@ under the MIT license.
 
 import sys
 from abc import ABCMeta, abstractmethod
+import os
 import io
 import errno
 import logging
@@ -139,27 +140,6 @@ class TCPServer(object):
         DEBUG      | 10
         NOTSET     | 0
 
-    Default Configuration of Log with YAML-format
-
-        version: 1
-        formatters:
-          default:
-            format: '[%(levelname)s] %(asctime)s %(message)s'
-        handlers:
-          console:
-            class: logging.StreamHandler
-            level: DEBUG
-            formatter: default
-            stream: ext://sys.stdout
-        loggers:
-          TCPServer:
-            level: DEBUG
-            handlers: [console]
-            propagate: no
-        root:
-          level: DEBUG
-          handlers: [console]
-
     '''
 
     _request_queue_size = 5
@@ -223,6 +203,11 @@ class TCPServer(object):
         #         logger.debug('Message with %s, %s', expensive_func1(),
         #                      expensive_func2())
         #
+        class_name = self.__class__.__name__
+        if os.name == 'posix':
+            logfile_error_handler_class = 'logging.handler.WatchedFileHandler'
+        elif os.name == 'nt':
+            logfile_error_handler_class = 'logging.FileHandler'
         default_log_conf = {
             'version': 1,
             'formatters': {
@@ -236,12 +221,30 @@ class TCPServer(object):
                     'level': 'DEBUG',
                     'formatter': 'default',
                     'stream': 'ext://sys.stderr'
+                },
+                'logfile': {
+                    'class': 'logging.handlers.RotatingFileHandler',
+                    'level': 'INFO',
+                    'filename': '{0}.log'.format(class_name),
+                    'mode': 'a',
+                    'maxBytes': 1048576,  # 10M
+                    'backupCount': 5,
+                    'encoding': 'utf-8',
+                    'formatter': 'default'
+                },
+                'logfile-error': {
+                    'class': logfile_error_handler_class,
+                    'level': 'ERROR',
+                    'filename': '{0}-error.log'.format(class_name),
+                    'mode': 'w',
+                    'encoding': 'utf-8',
+                    'formatter': 'default'
                 }
             },
             'loggers': {
-                self.__class__.__name__: {
+                class_name: {
                     'level': 'DEBUG',
-                    'handlers': ['console'],
+                    'handlers': ['console', 'logfile', 'logfile-error'],
                     'propagate': False
                 }
             },
@@ -251,10 +254,8 @@ class TCPServer(object):
             }
         }
         if logconf is None:
-            self._logfile = 'stderr'
             logging.config.dictConfig(default_log_conf)
         else:
-            self._logfile = logconf
             with open(logconf, 'r') as f:
                 logging.config.dictConfig(yaml.load(f))
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -312,8 +313,7 @@ class TCPServer(object):
         message_queues = {}
         handler = None
 
-        self.log_debug('Hosting on {0}, logging to {1} ...'.format(
-            self.server_name, self._logfile))
+        self.log_info('Hosting on {0} ...'.format(self.server_name))
         while True:
             # Block until a request is ready.
             self.log_debug('Waiting for request ...')
