@@ -26,9 +26,11 @@ class EchoRequestHandler(cookbook.RequestHandler):
         return data.encode()
 
 
+server = None
 try:
     server = cookbook.TCPServer((None, 8000), EchoRequestHandler,
                                 logconf='default_log_conf.yaml')
     server.run()
 finally:
-    server.close()
+    if server is not None:
+        server.close()
