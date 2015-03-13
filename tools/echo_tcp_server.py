@@ -20,5 +20,17 @@ limitations under the License.
 import cookbook
 
 
-server = cookbook.TCPServer((None, 8000), cookbook.EchoRequestHandler)
-server.run(3)
+class EchoRequestHandler(cookbook.RequestHandler):
+    '''Echo server request handler.'''
+    def handle(self, data):
+        return data.encode()
+
+
+server = None
+try:
+    server = cookbook.TCPServer((None, 8000), EchoRequestHandler,
+                                logconf='default_log_conf.yaml')
+    server.run()
+finally:
+    if server is not None:
+        server.close()
