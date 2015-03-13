@@ -46,7 +46,7 @@ import errno
 import logging
 import logging.config
 import socket
-import select
+import selectors
 import queue
 from unittest import mock
 import unittest
@@ -101,7 +101,7 @@ def eintr_retry(func, *args):
 class TCPServer(object):
     '''A tiny TCP server, both IPv4 and IPv6 support.
 
-    This class is built upon the `socket` and `select` modules.
+    This class is built upon the `socket` and `selectors` modules.
 
     Instance Attributes:
 
@@ -198,6 +198,9 @@ class TCPServer(object):
         self.server_address = self._socket.getsockname()
         self.server_name = socket.getfqdn(self.server_address[0])
 
+        self._message_queues = {}
+        self._handler = None
+
         # Set logging system
         #
         # Optimization:
@@ -259,6 +262,9 @@ class TCPServer(object):
                 logging.config.dictConfig(yaml.load(f))
         self._logger = logging.getLogger(self.__class__.__name__)
 
+        self.log_info('Hosting on {0} ({1})...'.format(
+            self.server_name, self.server_address))
+
     @staticmethod
     def debug(msg):
         '''Print debugging messages to the console.
@@ -306,96 +312,33 @@ class TCPServer(object):
 
         @param bufsize buffer size of reading from client
         '''
-        inputs = [self._socket]
-        outputs = []
-        exceptional = []
-        message_queues = {}
-        handler = None
+        EV_ACCEPT = 0  # Identify a new request coming
 
-        self.log_info('Hosting on {0} ({1})...'.format(
-            self.server_name, self.server_address))
-        while True:
-            # Block until a request is ready.
-            self.log_debug('Waiting for request ...')
-            rlist, wlist, xlist = eintr_retry(select.select,
-                                              inputs, outputs, inputs)
+        with selectors.DefaultSelector() as io_selector:
+            io_selector.register(self._socket, selectors.EVENT_READ, EV_ACCEPT)
 
-            # Read event
-            for s in rlist:
-                if s is self._socket:
-                    # A new request coming
-                    request, client_addr = s.accept()
-                    self.log_info('A request from {0}'.format(client_addr))
-                    if self.verify_request(request, client_addr):
-                        request.settimeout(0.0)
-                        inputs.append(request)
-                        message_queues[request] = queue.Queue()
+            while True:
+                # Block until a request is ready.
+                self.log_debug('Waiting for request ...')
+                e = io_selector.select()
 
-                        handler = self._RequestHandler(client_addr)
-                else:
-                    # Read from client
-                    address = s.getpeername()
-                    try:
-                        data = s.recv(bufsize)
-                    except OSError as err:
-                        self.log_error('Reading from {0}: {1}'.format(
-                            address, err))
-                        continue
-                    if data:
-                        self.log_debug('Data from {0}: {1}'.format(
-                            address, data))
-                        message_queues[s].put(data)
-                        if s not in outputs:
-                            outputs.append(s)
-                    else:
-                        self.log_info('Closing {0}'.format(address))
-                        inputs.remove(s)
-                        if s in outputs:
-                            outputs.remove(s)
-                        self._close_request(s)
-                        del message_queues[s]
+                for key, events in e:
+                    if key.data == EV_ACCEPT:
+                        self._accept(io_selector)
 
-            # Write event
-            for s in wlist:
-                address = s.getpeername()
-                try:
-                    next_data = message_queues[s].get_nowait()
-                except queue.Empty:
-                    self.log_debug('Queue for {0} empty'.format(address))
-                    outputs.remove(s)
-                else:
-                    try:
-                        data = handler.handle(next_data.decode())
-                        self.log_debug('Sending {0} to {1}'.format(
-                            data, address))
-                        s.sendall(data)
-                    except:
-                        self.handle_error(s)
+                    elif events & selectors.EVENT_READ:
+                        try:
+                            self._read(key.fileobj, bufsize, io_selector)
+                        except OSError:
+                            pass
 
-            # Exception event
-            for s in xlist:
-                self.log_warning('Exception condition on {0}'.format(
-                    s.getpeername()))
-                input.remove(s)
-                if s in outputs:
-                    outputs.remove(s)
-                self._close_request(s)
-                del message_queues[s]
+                    elif events & selectors.EVENT_WRITE:
+                        self._write(key.fileobj, io_selector)
 
     def close(self):
         '''Clean up server.'''
         if self._socket is not None:
             self._socket.close()
-
-    def handle_error(self, request):
-        '''Handle an error gracefully.
-
-        @param request the client request
-        @param client_address the client IP address in the form (host, port)
-
-        May be override.
-        '''
-        pass
 
     def verify_request(self, request, client_address):
         '''Verify the request.
@@ -407,13 +350,81 @@ class TCPServer(object):
         '''
         return True
 
+    def _accept(self, io_selector):
+        '''A new request coming.
+
+        @param io_selector I/O multiplex mechanism used
+        '''
+        request, client_addr = self._socket.accept()
+        self.log_info('A request from {0}'.format(client_addr))
+
+        if self.verify_request(request, client_addr):
+            request.settimeout(0.0)
+            io_selector.register(request, selectors.EVENT_READ)
+            self._message_queues[request] = queue.Queue()
+
+            self._handler = self._RequestHandler(request)
+
+    def _read(self, request, bufsize, io_selector):
+        '''Read data from client.
+
+        @param request request (socket) object ready for read
+        @param bufsize buffer size of reading from client
+        @param io_selector I/O multiplex mechanism used
+        @exception OSError
+        '''
+        address = request.getpeername()
+        try:
+            data = request.recv(bufsize)
+        except OSError as err:
+            self.log_error('Reading from {0}: {1}'.format(address, err))
+            raise
+        if data:
+            self.log_debug('Reading from {0}: {1}'.format(address, data))
+            self._message_queues[request].put(data)
+            io_selector.modify(request, selectors.EVENT_WRITE)
+        else:
+            self.log_info('Closing {0}'.format(address))
+            self._cleanup_request(request, io_selector)
+
+    def _write(self, request, io_selector):
+        '''Write data to client.
+
+        @param request request (socket) object ready for writing
+        @param io_selector I/O multiplex mechanism used
+        '''
+        address = request.getpeername()
+        try:
+            next_data = self._message_queues[request].get_nowait()
+        except queue.Empty:
+            self.log_debug('Queue for {0} empty'.format(address))
+        else:
+            try:
+                data = self._handler.handle(next_data.decode())
+                self.log_debug('Sending to {0}: {1}'.format(address, data))
+                request.sendall(data)
+                io_selector.modify(request, selectors.EVENT_READ)
+            except:
+                self._handler.handle_error()
+                self._cleanup_request(request, io_selector)
+
+    def _cleanup_request(self, request, io_selector):
+        '''Clean up an individual request.
+
+        @param request the client request
+        @param io_selector I/O multiplex mechanism used
+        '''
+        io_selector.unregister(request)
+        self._close_request(request)
+        del self._message_queues[request]
+
     def _close_request(self, request):
-        '''Clean up an individual request and shutdown it.
+        '''Close an individual request.
 
         @param request the client request
         '''
         try:
-            # Explicitly shutdown.
+            # Explicitly shutdown
             #
             # socket.close() merely releases
             # the socket and waits for GC to perform the actual close.
@@ -429,13 +440,13 @@ class RequestHandler(metaclass=ABCMeta):
 
     Instance Attributes:
 
-        - client_address: the client IP address in the form (host,port)
+        - request: the client request
 
     Subclasses MUST implement the handle() method.
     '''
 
-    def __init__(self, client_address):
-        self.client_address = client_address
+    def __init__(self, request):
+        self.request = request
 
     @abstractmethod
     def handle(self, data):
@@ -445,3 +456,10 @@ class RequestHandler(metaclass=ABCMeta):
         @return result (binary) data
         '''
         pass
+
+    def handle_error(self):
+        '''Handle an error gracefully.
+
+        May be override.
+        '''
+        sys.stderr.write('error')
